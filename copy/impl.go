@@ -86,9 +86,12 @@ func (c *CopyCmd) copyTo(ctx context.Context, writer io.Writer) error {
 	// defer pgConn.contextWatcher.Unwatch()
 
 	// Send copy to command
-	buf := make([]byte, 0, 4096)
-	buf = (&pgproto3.Query{String: sql}).Encode(buf)
 
+	bufWriter := bufio.NewWriterSize(&W{writer}, 65536)
+	defer bufWriter.Flush()
+
+	buf := make([]byte, 0, 8196)
+	buf = (&pgproto3.Query{String: sql}).Encode(buf)
 	n, err := pgConn.Conn().Write(buf)
 	if err != nil {
 		// TODO: Handle n == 0?
@@ -109,7 +112,7 @@ func (c *CopyCmd) copyTo(ctx context.Context, writer io.Writer) error {
 		switch msg := msg.(type) {
 		case *pgproto3.CopyDone:
 		case *pgproto3.CopyData:
-			_, err := writer.Write(msg.Data)
+			_, err := bufWriter.Write(msg.Data)
 			if err != nil {
 				return err
 			}
@@ -196,10 +199,11 @@ func (c *CopyCmd) copyFrom(ctx context.Context, reader io.Reader) error {
 		// This is critical. This keeps things moving really fast.
 		// The difference is ~50% vs ~170% cpu because of small
 		// writes to the pg tcp conn.
-		connBuf  := bufio.NewWriterSize(pgConn.Conn(), 8192)
-		buf = make([]byte, 0, 8192)
+		//connBuf  := bufio.NewWriterSize(pgConn.Conn(), 8192)
+		buf = make([]byte, 0, 65536+10)
 		buf = append(buf, 'd')
 		sp := len(buf)
+		reader = &R{reader}
 		for {
 			n, readErr := reader.Read(buf[5:cap(buf)])
 			if n > 0 {
@@ -207,7 +211,7 @@ func (c *CopyCmd) copyFrom(ctx context.Context, reader io.Reader) error {
 				pgio.SetInt32(buf[sp:], int32(n+4))
 
 				// The problem is that this doesn't batch so we're doing 19 byte writes forever.
-				_, writeErr := connBuf.Write(buf)
+				_, writeErr := pgConn.Conn().Write(buf)
 				if writeErr != nil {
 					// Write errors are always fatal, but we can't use asyncClose because we are in a different
 					// goroutine.
@@ -222,10 +226,10 @@ func (c *CopyCmd) copyFrom(ctx context.Context, reader io.Reader) error {
 			}
 			if readErr == io.EOF {
 				err = readErr
-				flushErr := connBuf.Flush()
-				if flushErr != nil {
-					err = flushErr
-				}
+				// flushErr := connBuf.Flush()
+				// if flushErr != nil {
+				// 	err = flushErr
+				// }
 				break
 			}
 			if readErr != nil {
@@ -317,7 +321,7 @@ func (c *CopyCmd) copyFrom(ctx context.Context, reader io.Reader) error {
 
 	// Read results
 	for {
-		println("tick...")
+		// println("tick...")
 		msg, err := pgConn.ReceiveMessage(ctx)
 		if err != nil {
 			pgConn.Close(ctx)

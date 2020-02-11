@@ -56,7 +56,7 @@ func main() {
 	cpq = cpq
 
 	// Even this is using 270% to copy one worker. Why? That's insane.
-	fmt.Println(cpq.CopyUsingPq(20))
+	fmt.Println(cpq.CopyUsingPq(10))
 	// fmt.Println(cpq.CopyUsingPq(1))
 
 	fmt.Println("Done!")
