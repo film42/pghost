@@ -8,8 +8,11 @@ import (
 	"encoding/binary"
 
 	"github.com/jackc/pgconn"
-	"github.com/jackc/pglogrepl"
-	"github.com/jackc/pgproto3"
+	"github.com/jackc/pgproto3/v2"
+	"github.com/kr/pretty"
+
+	"github.com/film42/pghost/pglogrepl"
+	"github.com/film42/pghost/pgoutput"
 )
 
 func main() {
@@ -65,6 +68,10 @@ func main() {
 			log.Fatalln("ReceiveMessage failed:", err)
 		}
 
+		if msg.(*pgproto3.CopyData) == nil {
+			log.Println("YES", msg)
+		}
+
 		switch msg := msg.(type) {
 		case *pgproto3.CopyData:
 			switch msg.Data[0] {
@@ -84,6 +91,13 @@ func main() {
 				if err != nil {
 					log.Fatalln("ParseXLogData failed:", err)
 				}
+
+				msg, err := pgoutput.Parse(xld.WALData)
+				if err != nil {
+					log.Println("ERROR GETTING THE WAL DATA PARSED:", err)
+				}
+				log.Println(pretty.Sprint(msg))
+
 				log.Println("XLogData =>", "WALStart", xld.WALStart, "ServerWALEnd", xld.ServerWALEnd, "ServerTime:", xld.ServerTime, "WALData", tryParse(xld.WALData))
 
 				clientXLogPos = xld.WALStart + pglogrepl.LSN(len(xld.WALData))
@@ -91,13 +105,14 @@ func main() {
 				log.Println("Something else:", msg.Data[0])
 			}
 		default:
-			log.Printf("Received unexpected message: %#v\n", msg)
+			log.Printf("ERROR: Received unexpected message: %#v\n", msg)
 		}
 
 	}
 }
 
 func tryParse(data []byte) string {
+	return "DONE"
 	log.Println("FIRST BYTE:", data[0], "STR:", string(data[0]))
 
 	switch data[0] {
@@ -116,7 +131,7 @@ func tryParse(data []byte) string {
 		log.Println("Namespace:", str)
 		log.Println("relreplident:", string(uint8(data[cur])))
 		cur += 1
-		numCols := binary.BigEndian.Uint16(data[cur:cur+2])
+		numCols := binary.BigEndian.Uint16(data[cur : cur+2])
 		cur += 2
 		log.Println("Num cols:", numCols)
 
@@ -139,7 +154,7 @@ func tryParse(data []byte) string {
 		log.Println("New tuple?:", string(data[5]))
 
 		cur := 6
-		numCols := binary.BigEndian.Uint16(data[cur:cur+2])
+		numCols := binary.BigEndian.Uint16(data[cur : cur+2])
 		cur += 2
 
 		for i := uint16(0); i < numCols; i++ {
@@ -150,10 +165,10 @@ func tryParse(data []byte) string {
 			case 'u':
 			case 't':
 				cur++
-				vsize := binary.BigEndian.Uint32(data[cur:cur+4])
+				vsize := binary.BigEndian.Uint32(data[cur : cur+4])
 				cur += 4
 				log.Println("  Tup Size:", vsize)
-				b := data[cur:cur+int(vsize)]
+				b := data[cur : cur+int(vsize)]
 				log.Println("  Tup Data:", b, "str:", string(b))
 				cur += int(vsize)
 			}
@@ -176,7 +191,7 @@ func parseString(data []byte) (string, int) {
 			return "", -1
 		}
 		if data[s] == byte(0) {
-			return string(data[:s]), s+1
+			return string(data[:s]), s + 1
 		}
 		s++
 	}

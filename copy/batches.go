@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log"
@@ -9,7 +10,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"context"
 )
 
 type W struct {
@@ -18,7 +18,7 @@ type W struct {
 
 func (t *W) Write(b []byte) (int, error) {
 	n, err := t.Writer.Write(b)
-	fmt.Println("Wrote n bytes:", n)
+	// fmt.Println("Wrote n bytes:", n)
 	return n, err
 }
 
@@ -161,20 +161,4 @@ func (cb *BatchCopyBoy) CopyInBatches(batchSize int64, workers int) error {
 	cancelFunc()
 	wg.Wait()
 	return nil
-}
-
-func main() {
-	cb := &BatchCopyBoy{
-		SourceTable:      "yolos",
-		DestinationTable: "yolos2",
-	}
-	// ./copy  2.34s user 1.38s system 19% cpu 19.259 total
-	fmt.Println(cb.CopyInBatches(100000, 10))
-
-	// ./copy  2.23s user 1.73s system 11% cpu 34.379 total
-	// fmt.Println(cb.CopyInBatches(100000, 2))
-
-	// ./copy  1.10s user 1.00s system 4% cpu 45.838 total
-	// fmt.Println(cb.CopyInBatches(100000000, 1))
-	fmt.Println("Done!")
 }
