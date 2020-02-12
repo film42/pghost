@@ -86,6 +86,30 @@ func columnAttributeToString(colType uint32, data []byte) string {
 	return fmt.Sprintf("'%s'", str)
 }
 
+func (pg *PgOutputUtil) HandleDelete(record *pgoutput.Delete) error {
+	rel, exists := pg.relcache[record.RelationID]
+	if !exists {
+		return ErrNoRelationFound
+	}
+
+	assignments := []string{}
+	for i, tuple := range record.Row {
+		col := rel.Columns[i]
+		if tuple.Flag == 0 {
+			// TODO: Switch to a pointer here? Probably empty (not used for delete)
+			continue
+		}
+
+		value := columnAttributeToString(col.Type, tuple.Value)
+		assignments = append(assignments, fmt.Sprintf("%s = %s", col.Name, value))
+	}
+
+	sql := fmt.Sprintf("DELETE FROM %s.%s WHERE %s;",
+		rel.Namespace, rel.Name, strings.Join(assignments, " AND "))
+	log.Println("SQL: " + sql)
+	return nil
+}
+
 func (pg *PgOutputUtil) HandleUpdate(record *pgoutput.Update) error {
 	rel, exists := pg.relcache[record.RelationID]
 	if !exists {
@@ -108,9 +132,13 @@ func (pg *PgOutputUtil) HandleUpdate(record *pgoutput.Update) error {
 		value := columnAttributeToString(col.Type, tuple.Value)
 		colsWithValues[col.Name] = value
 
-		if col.Name == "id" {
+		if col.Key {
 			whereColsWithValues[col.Name] = value
 		}
+	}
+
+	if len(whereColsWithValues) == 0 {
+		return errors.New("No primary key found, maybe we should use the colsWithValues instead?")
 	}
 
 	log.Println("SQL:", updateSql(rel.Namespace, rel.Name, colsWithValues, whereColsWithValues))

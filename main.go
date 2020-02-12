@@ -99,7 +99,10 @@ func main() {
 				// Debug.
 				switch v := r.(type) {
 				case *pgoutput.Relation:
+					// log.Println(pretty.Sprint(v))
 					util.CacheRelation(v)
+				case *pgoutput.Delete:
+					err = util.HandleDelete(v)
 				case *pgoutput.Insert:
 					err = util.HandleInsert(v)
 				case *pgoutput.Update:
