@@ -208,25 +208,25 @@ func Parse(src []byte) (Message, error) {
 	d := &decoder{order: binary.BigEndian, buf: bytes.NewBuffer(src[1:])}
 	switch msgType {
 	case 'B':
-		b := Begin{}
+		b := &Begin{}
 		b.LSN = d.uint64()
 		b.Timestamp = d.timestamp()
 		b.XID = d.int32()
 		return b, nil
 	case 'C':
-		c := Commit{}
+		c := &Commit{}
 		c.Flags = d.uint8()
 		c.LSN = d.uint64()
 		c.TransactionLSN = d.uint64()
 		c.Timestamp = d.timestamp()
 		return c, nil
 	case 'O':
-		o := Origin{}
+		o := &Origin{}
 		o.LSN = d.uint64()
 		o.Name = d.string()
 		return o, nil
 	case 'R':
-		r := Relation{}
+		r := &Relation{}
 		r.ID = d.uint32()
 		r.Namespace = d.string()
 		r.Name = d.string()
@@ -234,19 +234,19 @@ func Parse(src []byte) (Message, error) {
 		r.Columns = d.columns()
 		return r, nil
 	case 'Y':
-		t := Type{}
+		t := &Type{}
 		t.ID = d.uint32()
 		t.Namespace = d.string()
 		t.Name = d.string()
 		return t, nil
 	case 'I':
-		i := Insert{}
+		i := &Insert{}
 		i.RelationID = d.uint32()
 		i.New = d.uint8() > 0
 		i.Row = d.tupledata()
 		return i, nil
 	case 'U':
-		u := Update{}
+		u := &Update{}
 		u.RelationID = d.uint32()
 		u.Key = d.rowinfo('K')
 		u.Old = d.rowinfo('O')
@@ -257,7 +257,7 @@ func Parse(src []byte) (Message, error) {
 		u.Row = d.tupledata()
 		return u, nil
 	case 'D':
-		dl := Delete{}
+		dl := &Delete{}
 		dl.RelationID = d.uint32()
 		dl.Key = d.rowinfo('K')
 		dl.Old = d.rowinfo('O')
