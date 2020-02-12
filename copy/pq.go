@@ -1,12 +1,12 @@
 package main
 
 import (
-	"fmt"
-	"context"
-	"io"
-	"sync"
-	"log"
 	"bufio"
+	"context"
+	"fmt"
+	"io"
+	"log"
+	"sync"
 
 	"github.com/jackc/pgx/v4"
 	"github.com/kr/pretty"
@@ -40,10 +40,10 @@ func (cb *copyWithPq) CopyOneBatchCustomImpl(ctx context.Context, startingAtId i
 	log.Println(copyFromQuery)
 
 	cc := &CopyCmd{
-		FromConn: destConn.PgConn(),
+		FromConn:  destConn.PgConn(),
 		FromQuery: copyFromQuery,
 
-		ToConn: srcConn.PgConn(),
+		ToConn:  srcConn.PgConn(),
 		ToQuery: copyToQuery,
 	}
 
@@ -76,7 +76,7 @@ func (cb *copyWithPq) CopyOneBatch(ctx context.Context, startingAtId int64) erro
 	ctxWithCancel, cancelFunc := context.WithCancel(ctx)
 
 	// Kick off the read side. This will block even on read, so we'll be careful here.
-	copyFromChan :=  make(chan error, 1)
+	copyFromChan := make(chan error, 1)
 	go func() {
 		_, err := destConn.PgConn().CopyFrom(ctxWithCancel, &R{rx}, copyFromQuery)
 		if err != nil {

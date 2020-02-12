@@ -2,8 +2,8 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"log"
+	"os"
 	"runtime/pprof"
 )
 
@@ -40,10 +40,9 @@ func main() {
 
 	// fmt.Println(cb.CopyInBatches(100000, 1))
 
-
 	// 10 workers.
 	// &main.copyWithPq{minId:1, maxId:10000406, BatchSize:100000, SourceTable:"yolos", DestinationTable:"yolos2"}
-    // ./copy  326.65s user 22.58s system 508% cpu 1:08.70 total
+	// ./copy  326.65s user 22.58s system 508% cpu 1:08.70 total
 	// Without the busy "default:" loop killing cpu:
 	// &main.copyWithPq{minId:1, maxId:10000406, BatchSize:100000, SourceTable:"yolos", DestinationTable:"yolos2"}
 	// ./copy  30.83s user 23.68s system 193% cpu 28.156 total
@@ -52,9 +51,9 @@ func main() {
 	// ./copy  30.07s user 1.11s system 145% cpu 21.426 total
 	// ./copy  14.44s user 0.82s system 85% cpu 17.925 total
 	cpq := &copyWithPq{
-		SourceTable: "yolos",
+		SourceTable:      "yolos",
 		DestinationTable: "yolos2",
-		BatchSize: 100000,
+		BatchSize:        100000,
 	}
 	cpq = cpq
 

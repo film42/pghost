@@ -56,7 +56,7 @@ func main() {
 			if err != nil {
 				log.Fatalln("SendStandbyStatusUpdate failed:", err)
 			}
-			log.Println("Sent Standby status message")
+			// log.Println("Sent Standby status message")
 			nextStandbyMessageDeadline = time.Now().Add(standbyMessageTimeout)
 		}
 
@@ -70,10 +70,6 @@ func main() {
 			log.Fatalln("ReceiveMessage failed:", err)
 		}
 
-		if msg.(*pgproto3.CopyData) == nil {
-			log.Println("YES", msg)
-		}
-
 		switch msg := msg.(type) {
 		case *pgproto3.CopyData:
 			switch msg.Data[0] {
@@ -82,7 +78,7 @@ func main() {
 				if err != nil {
 					log.Fatalln("ParsePrimaryKeepaliveMessage failed:", err)
 				}
-				log.Println("Primary Keepalive Message =>", "ServerWALEnd:", pkm.ServerWALEnd, "ServerTime:", pkm.ServerTime, "ReplyRequested:", pkm.ReplyRequested)
+				// log.Println("Primary Keepalive Message =>", "ServerWALEnd:", pkm.ServerWALEnd, "ServerTime:", pkm.ServerTime, "ReplyRequested:", pkm.ReplyRequested)
 
 				if pkm.ReplyRequested {
 					nextStandbyMessageDeadline = time.Time{}
@@ -96,22 +92,24 @@ func main() {
 
 				r, err := pgoutput.Parse(xld.WALData)
 				if err != nil {
-					log.Println("ERROR GETTING THE WAL DATA PARSED:", err)
+					// log.Println("ERROR GETTING THE WAL DATA PARSED:", err)
 				}
-				log.Println(xld.WALStart, xld.ServerWALEnd, xld.ServerTime, pretty.Sprint(r))
+				// log.Println(xld.WALStart, xld.ServerWALEnd, xld.ServerTime, pretty.Sprint(r))
 
 				// Debug.
 				switch v := r.(type) {
 				case *pgoutput.Relation:
-					log.Println("adding relation")
 					util.CacheRelation(v)
 				case *pgoutput.Insert:
-					log.Println("here")
-					log.Println(util.HandleInsert(v))
+					err = util.HandleInsert(v)
+				case *pgoutput.Update:
+					err = util.HandleUpdate(v)
+					// log.Println(err)
 				default:
-					log.Println("Not supported:", pretty.Sprint(v))
+					f := pretty.Sprint(v)
+					f = f
+					// log.Println("Not supported:", f)
 				}
-
 
 				// log.Println("XLogData =>", "WALStart", xld.WALStart, "ServerWALEnd", xld.ServerWALEnd, "ServerTime:", xld.ServerTime, "WALData", tryParse(xld.WALData))
 

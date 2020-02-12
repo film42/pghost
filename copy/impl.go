@@ -1,23 +1,23 @@
 package main
 
 import (
+	"bufio"
 	"context"
+	"fmt"
 	"io"
 	"sync"
-	"fmt"
-	"bufio"
 
 	// "github.com/jackc/pgconn/internal/ctxwatch"
-	"github.com/jackc/pgio"
 	"github.com/jackc/pgconn"
+	"github.com/jackc/pgio"
 	"github.com/jackc/pgproto3/v2"
 )
 
 type CopyCmd struct {
-	FromConn *pgconn.PgConn
+	FromConn  *pgconn.PgConn
 	FromQuery string
 
-	ToConn *pgconn.PgConn
+	ToConn  *pgconn.PgConn
 	ToQuery string
 }
 
@@ -55,7 +55,7 @@ func (c *CopyCmd) Do(ctx context.Context) error {
 		select {
 		case <-parentContext.Done():
 			return parentContext.Err()
-		case err := <- errors:
+		case err := <-errors:
 			if err != nil && err != context.Canceled {
 				return err
 			}
@@ -180,17 +180,17 @@ func (c *CopyCmd) copyFrom(ctx context.Context, reader io.Reader) error {
 	// copyErrChan := make(chan error, 1)
 	// signalMessageChan := pgConn.signalMessage()
 
-// 	go func() {
-// 		buf := make([]byte, 0, 65536)
-// 		buf = append(buf, 'd')
-// 		sp := len(buf)
+	// 	go func() {
+	// 		buf := make([]byte, 0, 65536)
+	// 		buf = append(buf, 'd')
+	// 		sp := len(buf)
 
-// 		_, err := io.Copy(pgConn.Conn(), reader)
-// 		if err != nil {
-// 			panic(err)
-// 			copyErrChan <- err
-// 		}
-// 		return
+	// 		_, err := io.Copy(pgConn.Conn(), reader)
+	// 		if err != nil {
+	// 			panic(err)
+	// 			copyErrChan <- err
+	// 		}
+	// 		return
 
 	// yolo := pgio.SetInt32
 	// yolo = yolo
@@ -253,14 +253,11 @@ func (c *CopyCmd) copyFrom(ctx context.Context, reader io.Reader) error {
 	// 	_, err = io.CopyBuffer(pgConn.Conn(), reader, buf)
 	// }
 
-
 	// So we're flushing everything to the DB, but not getting anything back. Why?
 
 	// sp := len(buf)
 
-
 	cancelFunc = cancelFunc
-
 
 	buf = buf[:0]
 	if err == io.EOF || pgErr != nil {
