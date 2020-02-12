@@ -6,6 +6,7 @@ import (
 	"io"
 	"sync"
 	"log"
+	"bufio"
 
 	"github.com/jackc/pgx/v4"
 	"github.com/kr/pretty"
@@ -20,13 +21,13 @@ type copyWithPq struct {
 }
 
 func (cb *copyWithPq) CopyOneBatchCustomImpl(ctx context.Context, startingAtId int64) error {
-	srcConn, err := pgx.Connect(ctx, "dbname=postgres host=/var/run/postgresql")
+	srcConn, err := pgx.Connect(ctx, "dbname=postgres")
 	if err != nil {
 		return err
 	}
 	defer srcConn.Close(ctx)
 
-	destConn, err := pgx.Connect(ctx, "dbname=postgres host=/var/run/postgresql")
+	destConn, err := pgx.Connect(ctx, "dbname=postgres")
 	if err != nil {
 		return err
 	}
@@ -71,6 +72,7 @@ func (cb *copyWithPq) CopyOneBatch(ctx context.Context, startingAtId int64) erro
 	rx, wx := io.Pipe()
 	defer wx.Close()
 	defer rx.Close()
+	writer := bufio.NewWriterSize(wx, 65536)
 	ctxWithCancel, cancelFunc := context.WithCancel(ctx)
 
 	// Kick off the read side. This will block even on read, so we'll be careful here.
@@ -85,9 +87,14 @@ func (cb *copyWithPq) CopyOneBatch(ctx context.Context, startingAtId int64) erro
 		copyFromChan <- err
 	}()
 
-	_, err = srcConn.PgConn().CopyTo(ctxWithCancel, &W{wx}, copyToQuery)
+	_, err = srcConn.PgConn().CopyTo(ctxWithCancel, &W{writer}, copyToQuery)
 	if err != nil {
 		// Signal to reader that we are done.
+		cancelFunc()
+		return err
+	}
+	err = writer.Flush()
+	if err != nil {
 		cancelFunc()
 		return err
 	}

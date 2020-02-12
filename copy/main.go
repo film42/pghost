@@ -19,7 +19,7 @@ func main() {
 	defer pprof.StopCPUProfile()
 
 	cb := &BatchCopyBoy{
-		SourceTable:      "yolos3",
+		SourceTable:      "yolos",
 		DestinationTable: "yolos2",
 	}
 	cb = cb
@@ -29,6 +29,8 @@ func main() {
 	// ./copy  2.24s user 1.35s system 13% cpu 26.438 total
 	// ./copy  2.12s user 1.27s system 19% cpu 17.268 total
 	// fmt.Println(cb.CopyInBatches(100000, 10))
+
+	// fmt.Println(cb.CopyInBatches(1000000, 10))
 
 	// ./copy  2.23s user 1.73s system 11% cpu 34.379 total
 	// fmt.Println(cb.CopyInBatches(100000, 2))
@@ -48,6 +50,7 @@ func main() {
 	// With abortCopyChan select removed
 	// ./copy  26.56s user 19.58s system 191% cpu 24.081 total
 	// ./copy  30.07s user 1.11s system 145% cpu 21.426 total
+	// ./copy  14.44s user 0.82s system 85% cpu 17.925 total
 	cpq := &copyWithPq{
 		SourceTable: "yolos",
 		DestinationTable: "yolos2",
