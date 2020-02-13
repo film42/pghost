@@ -10,7 +10,6 @@ import (
 	"github.com/jackc/pgx/v4"
 )
 
-
 func main() {
 	// Setup replication connection.
 	ctx := context.Background()

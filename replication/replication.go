@@ -2,8 +2,8 @@ package replication
 
 import (
 	"context"
-	"fmt"
 	"errors"
+	"fmt"
 	"log"
 	"time"
 
@@ -15,13 +15,13 @@ import (
 )
 
 type LogicalReplicator struct {
-	Conn *pgconn.PgConn
+	Conn    *pgconn.PgConn
 	Handler *PgOutputUtil
 }
 
 func NewLogicalReplicator(conn *pgconn.PgConn) *LogicalReplicator {
 	return &LogicalReplicator{
-		Conn: conn,
+		Conn:    conn,
 		Handler: NewPgOutputUtil(),
 	}
 }
@@ -67,7 +67,7 @@ func (lr *LogicalReplicator) ReplicateUpToCheckpoint(ctx context.Context, name s
 		var shouldAckKnownLSN bool
 
 		// NOTE: We should tick at least once every 10 seconds as a heart beat.
-		rcvCtx, cancelFunc := context.WithTimeout(ctx, time.Second * 10)
+		rcvCtx, cancelFunc := context.WithTimeout(ctx, time.Second*10)
 
 		// Receive the mesasge
 		msg, err := lr.Conn.ReceiveMessage(rcvCtx)
