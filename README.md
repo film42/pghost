@@ -17,8 +17,8 @@ Logical Replication:
 3. Can upsert into the table up to some LSN.
 
 General Flow:
-1. Creates a logical replication using pgoutput plugin.
-2. Begins a sync using walking IDs or keyset pagination. This allows vacuums to run and indexes to be cleaned.
+1. Creates a logical replication using pgoutput plugin. DONE.
+2. Begins a sync using walking IDs or keyset pagination. This allows vacuums to run and indexes to be cleaned. DONE.
 3. After (2) completes, save the current LSN as a checkpoint.
 3. Subscribe to the replication slot upserting SQL into the DB. Slow but good enough for now. Upsert all changes up to the checkpoint LSN.
 4. After (3), switch back to standard pgoutput + postgres replication now that no conflicts will happen.
