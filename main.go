@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/film42/pghost/copy"
@@ -33,16 +34,27 @@ func main() {
 	replicationSlotName := "yolo12300000xyz"
 
 	// Create a replication slot to catch all future changes.
-	lr := replication.NewLogicalReplicator(replicationConn.PgConn())
+	lr := replication.NewLogicalReplicator(replicationConn.PgConn(), func(ctx context.Context, statements []string) error {
+		// An applier will be handed sql statements that need to be applied to the target
+		// database. The Logical Replicator will use this to determine if the results were
+		// successfully applied or not.
+		log.Println("STATEMENTS:", statements)
+		// TODO: Clean up all this error handling.
+		_, err := queryConn.Exec(ctx, strings.Join(statements, " "))
+		return err
+	})
+
+	lr.AddRelationMapping(&replication.RelationMapping{
+		SourceNamespace:      "public",
+		SourceName:           "yolos",
+		DestinationNamespace: "public",
+		DestinationName:      "yolos2",
+	})
+
 	// For testing we'll use a temporary slot.
 	err = lr.CreateReplicationSlot(ctx, replicationSlotName, true)
 	if err != nil {
 		log.Println("Ignoring error from trying to create the replication slot:", err)
-	}
-
-	err = doSomeWork(ctx, queryConn)
-	if err != nil {
-		log.Fatalln("Could not create some pending work in the replication slot:", err)
 	}
 
 	cpq := &copy.CopyWithPq{
@@ -53,6 +65,11 @@ func main() {
 	err = cpq.CopyUsingPq(10)
 	if err != nil {
 		log.Fatalln("Could not copy table:", err)
+	}
+
+	err = doSomeWork(ctx, queryConn)
+	if err != nil {
+		log.Fatalln("Could not create some pending work in the replication slot:", err)
 	}
 
 	// Get the most recent xlogpos as a checkpoint.

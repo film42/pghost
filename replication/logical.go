@@ -3,7 +3,7 @@ package replication
 import (
 	"errors"
 	"fmt"
-	"log"
+	// "log"
 	"strings"
 
 	// "github.com/kr/pretty"
@@ -39,14 +39,46 @@ var NumericalOidTypeMap = map[uint32]string{
 	13140: "cardinal_number",
 }
 
+type RelationMapping struct {
+	DestinationName      string
+	DestinationNamespace string
+	SourceName           string
+	SourceNamespace      string
+}
+
 type PgOutputUtil struct {
 	relcache map[uint32]*pgoutput.Relation
+	// This is basically map[sourceNamespace][sourceName] = relationMapping
+	relmapping map[string]map[string]*RelationMapping
 }
 
 func NewPgOutputUtil() *PgOutputUtil {
 	return &PgOutputUtil{
-		relcache: map[uint32]*pgoutput.Relation{},
+		relcache:   map[uint32]*pgoutput.Relation{},
+		relmapping: map[string]map[string]*RelationMapping{},
 	}
+}
+
+func (pg *PgOutputUtil) AddRelationMapping(relMap *RelationMapping) {
+	pg.relmapping[relMap.SourceNamespace] = map[string]*RelationMapping{
+		relMap.SourceName: relMap,
+	}
+}
+
+func (pg *PgOutputUtil) GetRelationMapping(schema, table string) *RelationMapping {
+	inner, exists := pg.relmapping[schema]
+	if !exists {
+		return nil
+	}
+	return inner[table]
+}
+
+func (pg *PgOutputUtil) GetMappedSchemaAndTable(schema, table string) (string, string) {
+	mapping := pg.GetRelationMapping(schema, table)
+	if mapping == nil {
+		return schema, table
+	}
+	return mapping.DestinationNamespace, mapping.DestinationName
 }
 
 func (pg *PgOutputUtil) CacheRelation(rel *pgoutput.Relation) {
@@ -54,7 +86,7 @@ func (pg *PgOutputUtil) CacheRelation(rel *pgoutput.Relation) {
 }
 
 func insertIntoSql(schema, table string, cols, values []string) string {
-	return fmt.Sprintf("INSERT INTO %s.%s (%s) VALUES (%s) DO NOTHING;",
+	return fmt.Sprintf("INSERT INTO %s.%s (%s) VALUES (%s) ON CONFLICT DO NOTHING;",
 		schema, table, strings.Join(cols, ","), strings.Join(values, ","))
 }
 
@@ -87,21 +119,22 @@ func columnAttributeToString(colType uint32, data []byte) string {
 	return fmt.Sprintf("'%s'", str)
 }
 
-func (pg *PgOutputUtil) HandleBegin(record *pgoutput.Begin) error {
-	log.Println("SQL: BEGIN;")
-	return nil
+func (pg *PgOutputUtil) BeginToSql(record *pgoutput.Begin) (string, error) {
+	// log.Println("SQL: BEGIN;")
+	return "BEGIN;", nil
 }
 
-func (pg *PgOutputUtil) HandleCommit(record *pgoutput.Commit) error {
+func (pg *PgOutputUtil) CommitToSql(record *pgoutput.Commit) (string, error) {
 	lsn := pglogrepl.LSN(record.LSN)
-	log.Println("SQL: COMMIT; -- LSN:", lsn.String())
-	return nil
+	sql := fmt.Sprintf("COMMIT; -- LSN: %s", lsn.String())
+	// log.Println("SQL:", sql)
+	return sql, nil
 }
 
-func (pg *PgOutputUtil) HandleDelete(record *pgoutput.Delete) error {
+func (pg *PgOutputUtil) DeleteToSql(record *pgoutput.Delete) (string, error) {
 	rel, exists := pg.relcache[record.RelationID]
 	if !exists {
-		return ErrNoRelationFound
+		return "", ErrNoRelationFound
 	}
 
 	assignments := []string{}
@@ -116,24 +149,26 @@ func (pg *PgOutputUtil) HandleDelete(record *pgoutput.Delete) error {
 		assignments = append(assignments, fmt.Sprintf("%s = %s", col.Name, value))
 	}
 
+	schema, table := pg.GetMappedSchemaAndTable(rel.Namespace, rel.Name)
 	sql := fmt.Sprintf("DELETE FROM %s.%s WHERE %s;",
-		rel.Namespace, rel.Name, strings.Join(assignments, " AND "))
-	log.Println("SQL: " + sql)
-	return nil
+		schema, table, strings.Join(assignments, " AND "))
+
+	// log.Println("SQL:", sql)
+	return sql, nil
 }
 
-func (pg *PgOutputUtil) HandleUpdate(record *pgoutput.Update) error {
+func (pg *PgOutputUtil) UpdateToSql(record *pgoutput.Update) (string, error) {
 	rel, exists := pg.relcache[record.RelationID]
 	if !exists {
-		return ErrNoRelationFound
+		return "", ErrNoRelationFound
 	}
 
 	if !record.New {
-		return errors.New("Can't hanlde non-new insert for now")
+		return "", errors.New("Can't hanlde non-new insert for now")
 	}
 
 	if len(record.Row) != len(rel.Columns) {
-		return errors.New("Can't handle mis-matched cols. Currently assuming it's handed in rel cols order")
+		return "", errors.New("Can't handle mis-matched cols. Currently assuming it's handed in rel cols order")
 	}
 
 	colsWithValues := map[string]string{}
@@ -150,25 +185,27 @@ func (pg *PgOutputUtil) HandleUpdate(record *pgoutput.Update) error {
 	}
 
 	if len(whereColsWithValues) == 0 {
-		return errors.New("No primary key found, maybe we should use the colsWithValues instead?")
+		return "", errors.New("No primary key found, maybe we should use the colsWithValues instead?")
 	}
 
-	log.Println("SQL:", updateSql(rel.Namespace, rel.Name, colsWithValues, whereColsWithValues))
-	return nil
+	schema, table := pg.GetMappedSchemaAndTable(rel.Namespace, rel.Name)
+	sql := updateSql(schema, table, colsWithValues, whereColsWithValues)
+	// log.Println("SQL:", sql)
+	return sql, nil
 }
 
-func (pg *PgOutputUtil) HandleInsert(record *pgoutput.Insert) error {
+func (pg *PgOutputUtil) InsertToSql(record *pgoutput.Insert) (string, error) {
 	rel, exists := pg.relcache[record.RelationID]
 	if !exists {
-		return ErrNoRelationFound
+		return "", ErrNoRelationFound
 	}
 
 	if !record.New {
-		return errors.New("Can't hanlde non-new insert for now")
+		return "", errors.New("Can't hanlde non-new insert for now")
 	}
 
 	if len(record.Row) != len(rel.Columns) {
-		return errors.New("Can't handle mis-matched cols. Currently assuming it's handed in rel cols order")
+		return "", errors.New("Can't handle mis-matched cols. Currently assuming it's handed in rel cols order")
 	}
 
 	//sql := squirrel.Insert(fmt.Sprintf("%s.%s", rel.Namespace, rel.Name))
@@ -187,6 +224,8 @@ func (pg *PgOutputUtil) HandleInsert(record *pgoutput.Insert) error {
 	}
 	//sql = sql.Values(values...)
 
-	log.Println("SQL:", insertIntoSql(rel.Namespace, rel.Name, colStrs, values))
-	return nil
+	schema, table := pg.GetMappedSchemaAndTable(rel.Namespace, rel.Name)
+	sql := insertIntoSql(schema, table, colStrs, values)
+	// log.Println("SQL:", sql)
+	return sql, nil
 }

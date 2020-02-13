@@ -14,16 +14,24 @@ import (
 	"github.com/film42/pghost/pgoutput"
 )
 
+type SqlApplierFunc func(ctx context.Context, sqlStatements []string) error
+
 type LogicalReplicator struct {
-	Conn    *pgconn.PgConn
-	Handler *PgOutputUtil
+	Conn       *pgconn.PgConn
+	Handler    *PgOutputUtil
+	SqlApplier SqlApplierFunc
 }
 
-func NewLogicalReplicator(conn *pgconn.PgConn) *LogicalReplicator {
+func NewLogicalReplicator(conn *pgconn.PgConn, sqlApplier SqlApplierFunc) *LogicalReplicator {
 	return &LogicalReplicator{
-		Conn:    conn,
-		Handler: NewPgOutputUtil(),
+		Conn:       conn,
+		Handler:    NewPgOutputUtil(),
+		SqlApplier: sqlApplier,
 	}
+}
+
+func (lr *LogicalReplicator) AddRelationMapping(relMap *RelationMapping) {
+	lr.Handler.AddRelationMapping(relMap)
 }
 
 func (lr *LogicalReplicator) CurrentXLogPos(ctx context.Context) (pglogrepl.LSN, error) {
@@ -61,6 +69,9 @@ func (lr *LogicalReplicator) ReplicateUpToCheckpoint(ctx context.Context, name s
 	}
 
 	var hadWritesSinceLastCommit bool
+
+	// Preload the statements to be applied.
+	statements := make([]string, 0, 1024)
 
 	// Replicate until we reach the provided checkpoint.
 	// NOTE: This is best effor, so it's ok if we go beyond the checkpoint LSN a little bit
@@ -117,24 +128,45 @@ func (lr *LogicalReplicator) ReplicateUpToCheckpoint(ctx context.Context, name s
 				case *pgoutput.Relation:
 					lr.Handler.CacheRelation(v)
 				case *pgoutput.Begin:
+					// Reset statement list.
+					statements = statements[:0]
 					hadWritesSinceLastCommit = false
-					err = lr.Handler.HandleBegin(v)
+					sql, err := lr.Handler.BeginToSql(v)
+					if err != nil {
+						return err
+					}
+					statements = append(statements, sql)
 				case *pgoutput.Commit:
-					err = lr.Handler.HandleCommit(v)
+					sql, err := lr.Handler.CommitToSql(v)
 					// Signal that an ACK should be sent back to the DB.
 					// Only do it if there were writes. This cuts down on the millions of txns that happen.
 					shouldAckKnownLSN = hadWritesSinceLastCommit
 					lastAckedLSN = pglogrepl.LSN(v.TransactionLSN)
+					if err != nil {
+						return err
+					}
+					statements = append(statements, sql)
 				case *pgoutput.Delete:
 					hadWritesSinceLastCommit = true
-					err = lr.Handler.HandleDelete(v)
+					sql, err := lr.Handler.DeleteToSql(v)
+					if err != nil {
+						return err
+					}
+					statements = append(statements, sql)
 				case *pgoutput.Insert:
 					hadWritesSinceLastCommit = true
-					err = lr.Handler.HandleInsert(v)
+					sql, err := lr.Handler.InsertToSql(v)
+					if err != nil {
+						return err
+					}
+					statements = append(statements, sql)
 				case *pgoutput.Update:
 					hadWritesSinceLastCommit = true
-					err = lr.Handler.HandleUpdate(v)
-					// log.Println(err)
+					sql, err := lr.Handler.UpdateToSql(v)
+					if err != nil {
+						return err
+					}
+					statements = append(statements, sql)
 				default:
 					err = errors.New(fmt.Sprintf("error: received unknown wal message: %+v"))
 				}
@@ -151,8 +183,16 @@ func (lr *LogicalReplicator) ReplicateUpToCheckpoint(ctx context.Context, name s
 		}
 
 		// ACK if requested
-		shouldAckKnownLSN = shouldAckKnownLSN
 		if shouldAckKnownLSN {
+			// Only apply statements if we have more than BEGIN; COMMIT;
+			if len(statements) > 2 {
+				err = lr.SqlApplier(ctx, statements)
+				if err != nil {
+					return err
+				}
+			}
+
+			// Only ACK if the sql applier finished OK.
 			err = pglogrepl.SendStandbyStatusUpdate(ctx, lr.Conn,
 				pglogrepl.StandbyStatusUpdate{
 					WALApplyPosition: lastAckedLSN,
