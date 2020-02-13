@@ -5,6 +5,8 @@ import (
 	"log"
 	"os"
 	"runtime/pprof"
+
+	"github.com/film42/pghost/copy"
 )
 
 func main() {
@@ -18,7 +20,7 @@ func main() {
 	}
 	defer pprof.StopCPUProfile()
 
-	cb := &BatchCopyBoy{
+	cb := &copy.BatchCopyBoy{
 		SourceTable:      "yolos",
 		DestinationTable: "yolos2",
 	}
@@ -50,7 +52,7 @@ func main() {
 	// ./copy  26.56s user 19.58s system 191% cpu 24.081 total
 	// ./copy  30.07s user 1.11s system 145% cpu 21.426 total
 	// ./copy  14.44s user 0.82s system 85% cpu 17.925 total
-	cpq := &copyWithPq{
+	cpq := &copy.CopyWithPq{
 		SourceTable:      "yolos",
 		DestinationTable: "yolos2",
 		BatchSize:        100000,

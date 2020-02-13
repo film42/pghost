@@ -1,4 +1,4 @@
-package main
+package copy
 
 import (
 	"bufio"
@@ -12,7 +12,7 @@ import (
 	"github.com/kr/pretty"
 )
 
-type copyWithPq struct {
+type CopyWithPq struct {
 	minId            int64
 	maxId            int64
 	BatchSize        int64
@@ -20,7 +20,7 @@ type copyWithPq struct {
 	DestinationTable string
 }
 
-func (cb *copyWithPq) CopyOneBatchCustomImpl(ctx context.Context, startingAtId int64) error {
+func (cb *CopyWithPq) CopyOneBatchCustomImpl(ctx context.Context, startingAtId int64) error {
 	srcConn, err := pgx.Connect(ctx, "dbname=postgres")
 	if err != nil {
 		return err
@@ -50,7 +50,7 @@ func (cb *copyWithPq) CopyOneBatchCustomImpl(ctx context.Context, startingAtId i
 	return cc.Do(ctx)
 }
 
-func (cb *copyWithPq) CopyOneBatch(ctx context.Context, startingAtId int64) error {
+func (cb *CopyWithPq) CopyOneBatch(ctx context.Context, startingAtId int64) error {
 	srcConn, err := pgx.Connect(ctx, "dbname=postgres")
 	if err != nil {
 		return err
@@ -103,7 +103,7 @@ func (cb *copyWithPq) CopyOneBatch(ctx context.Context, startingAtId int64) erro
 	return <-copyFromChan
 }
 
-func (cb *copyWithPq) CopyUsingPq(workers int) error {
+func (cb *CopyWithPq) CopyUsingPq(workers int) error {
 	ctx := context.Background()
 	conn, err := pgx.Connect(ctx, "dbname=postgres host=/var/run/postgresql")
 	if err != nil {
