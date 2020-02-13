@@ -8,13 +8,13 @@ Testing the following:
 2. Let the slot continue to collect WAL. DONE.
 3. Start a keyset page (or naive id range seek) in batches. This allows the vacuum to run. DONE. TODO: Impl keyset.
 4. Capture the LSN (using IDENTIFY SYSTEM) after we've copied the last row. DONE.
-5. Use a custom apply worker to merge data from rep slot "restart lsn" to "current lsn". KINDA DONE.
+5. Use a custom apply worker to merge data from rep slot "restart lsn" to "current lsn". DONE.
 6. Either continue to let the custom apply worker run, or switch to walrecv apply.
 
 Logical Replication:
 1. Can parse pgoutput. DONE.
 2. Can format attribute types into SQL expressions. KINDA DONE.
-3. Can upsert into the table up to some LSN. PENDING.
+3. Can upsert into the table up to some LSN. DONE.
 
 General Flow:
 1. Creates a logical replication using pgoutput plugin. DONE.
