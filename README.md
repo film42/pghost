@@ -26,6 +26,10 @@ General Flow:
 Why?:
 - This tool is currently an experiment to see if it's possible to batch the synchronization part of logical replication to avoid vacuums from cleaning indexes. For large tables, it's been observed that after 12-48 hours of the synchronization starting, performance suffers due to vacuums not running.
 
+Misc TODO:
+- Handle replication slot dropped.
+- Handle server is going down.
+
 NOTES:
 
 - Current test bed is basically:
