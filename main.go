@@ -5,6 +5,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/film42/pghost/copy"
 	"github.com/film42/pghost/pglogrepl"
 	"github.com/film42/pghost/replication"
 	"github.com/jackc/pgx/v4"
@@ -28,14 +29,29 @@ func main() {
 
 	// TODO: Turn these into parameters.
 	checkpointLSN := pglogrepl.LSN(0)
-	publicationName := "my_pub"
+	publicationName := "pub_on_yolos"
 	replicationSlotName := "yolo12300000xyz"
 
-	// Replicate any missing changes.
+	// Create a replication slot to catch all future changes.
 	lr := replication.NewLogicalReplicator(replicationConn.PgConn())
-	err = lr.CreateReplicationSlot(ctx, replicationSlotName, false)
+	// For testing we'll use a temporary slot.
+	err = lr.CreateReplicationSlot(ctx, replicationSlotName, true)
 	if err != nil {
 		log.Println("Ignoring error from trying to create the replication slot:", err)
+	}
+
+	// doSomeWork(ctx, queryConn)
+	// a := new(copy.CopyWithPq)
+	// a = a
+
+	cpq := &copy.CopyWithPq{
+		SourceTable:      "yolos",
+		DestinationTable: "yolos2",
+		BatchSize:        100000,
+	}
+	err = cpq.CopyUsingPq(10)
+	if err != nil {
+		log.Fatalln("Could not copy table:", err)
 	}
 
 	// Get the most recent xlogpos as a checkpoint.
@@ -61,6 +77,6 @@ func doSomeWork(ctx context.Context, conn *pgx.Conn) error {
 		rows.Values() // Load
 		rows.Close()
 	}
-	time.Sleep(5)
+	time.Sleep(time.Second * 5)
 	return nil
 }

@@ -60,6 +60,8 @@ func (lr *LogicalReplicator) ReplicateUpToCheckpoint(ctx context.Context, name s
 		return err
 	}
 
+	var hadWritesSinceLastCommit bool
+
 	// Replicate until we reach the provided checkpoint.
 	// NOTE: This is best effor, so it's ok if we go beyond the checkpoint LSN a little bit
 	// since the main goal is to transition to the builtin wal sender worker.
@@ -115,17 +117,22 @@ func (lr *LogicalReplicator) ReplicateUpToCheckpoint(ctx context.Context, name s
 				case *pgoutput.Relation:
 					lr.Handler.CacheRelation(v)
 				case *pgoutput.Begin:
+					hadWritesSinceLastCommit = false
 					err = lr.Handler.HandleBegin(v)
 				case *pgoutput.Commit:
 					err = lr.Handler.HandleCommit(v)
 					// Signal that an ACK should be sent back to the DB.
-					shouldAckKnownLSN = true
+					// Only do it if there were writes. This cuts down on the millions of txns that happen.
+					shouldAckKnownLSN = hadWritesSinceLastCommit
 					lastAckedLSN = pglogrepl.LSN(v.TransactionLSN)
 				case *pgoutput.Delete:
+					hadWritesSinceLastCommit = true
 					err = lr.Handler.HandleDelete(v)
 				case *pgoutput.Insert:
+					hadWritesSinceLastCommit = true
 					err = lr.Handler.HandleInsert(v)
 				case *pgoutput.Update:
+					hadWritesSinceLastCommit = true
 					err = lr.Handler.HandleUpdate(v)
 					// log.Println(err)
 				default:
