@@ -30,15 +30,17 @@ func main() {
 
 	slotName := "yolo12300000xyz"
 
-	_, err = pglogrepl.CreateReplicationSlot(context.Background(), conn, slotName, "pgoutput", pglogrepl.CreateReplicationSlotOptions{Temporary: true})
-	if err != nil {
-		log.Fatalln("CreateReplicationSlot failed:", err)
-	}
-	log.Println("Created temporary replication slot:", slotName)
+	// _, err = pglogrepl.CreateReplicationSlot(context.Background(), conn, slotName, "pgoutput", pglogrepl.CreateReplicationSlotOptions{Temporary: false})
+	// if err != nil {
+	// 	log.Fatalln("CreateReplicationSlot failed:", err)
+	// }
+	// log.Println("Created temporary replication slot:", slotName)
 
-	time.Sleep(time.Second * 5)
+	// time.Sleep(time.Second * 5)
 
-	err = pglogrepl.StartReplication(context.Background(), conn, slotName, sysident.XLogPos, pglogrepl.StartReplicationOptions{}, "(proto_version '1', publication_names 'my_pub')")
+	// NOTE: We should probably always default to start at LSN(0) since that will always go back to the
+	// oldest restart_lsn which is probably what we want.
+	err = pglogrepl.StartReplication(context.Background(), conn, slotName, pglogrepl.LSN(0), pglogrepl.StartReplicationOptions{}, "(proto_version '1', publication_names 'my_pub')")
 	if err != nil {
 		log.Fatalln("StartReplication failed:", err)
 	}
@@ -56,7 +58,7 @@ func main() {
 			if err != nil {
 				log.Fatalln("SendStandbyStatusUpdate failed:", err)
 			}
-			// log.Println("Sent Standby status message")
+			log.Println("Sent Standby status message")
 			nextStandbyMessageDeadline = time.Now().Add(standbyMessageTimeout)
 		}
 
@@ -92,7 +94,7 @@ func main() {
 
 				r, err := pgoutput.Parse(xld.WALData)
 				if err != nil {
-					// log.Println("ERROR GETTING THE WAL DATA PARSED:", err)
+					log.Println("ERROR GETTING THE WAL DATA PARSED:", err)
 				}
 				// log.Println(xld.WALStart, xld.ServerWALEnd, xld.ServerTime, pretty.Sprint(r))
 
@@ -101,6 +103,17 @@ func main() {
 				case *pgoutput.Relation:
 					// log.Println(pretty.Sprint(v))
 					util.CacheRelation(v)
+				case *pgoutput.Begin:
+					err = util.HandleBegin(v)
+				case *pgoutput.Commit:
+					err = util.HandleCommit(v)
+					// Suppose we have written updates to the DB.
+					err = pglogrepl.SendStandbyStatusUpdate(context.Background(), conn, pglogrepl.StandbyStatusUpdate{WALWritePosition: pglogrepl.LSN(v.LSN)})
+					if err != nil {
+						log.Println("ERROR SENDING ACK:", pglogrepl.LSN(v.LSN))
+					} else {
+						log.Println("ACK DELIVERED:", pglogrepl.LSN(v.LSN))
+					}
 				case *pgoutput.Delete:
 					err = util.HandleDelete(v)
 				case *pgoutput.Insert:
@@ -111,7 +124,7 @@ func main() {
 				default:
 					f := pretty.Sprint(v)
 					f = f
-					// log.Println("Not supported:", f)
+					log.Println("Not supported:", f)
 				}
 
 				// log.Println("XLogData =>", "WALStart", xld.WALStart, "ServerWALEnd", xld.ServerWALEnd, "ServerTime:", xld.ServerTime, "WALData", tryParse(xld.WALData))

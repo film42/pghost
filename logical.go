@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	// "github.com/kr/pretty"
+	"github.com/film42/pghost/pglogrepl"
 	"github.com/film42/pghost/pgoutput"
 	// "github.com/Masterminds/squirrel"
 )
@@ -84,6 +85,17 @@ func columnAttributeToString(colType uint32, data []byte) string {
 		return str
 	}
 	return fmt.Sprintf("'%s'", str)
+}
+
+func (pg *PgOutputUtil) HandleBegin(record *pgoutput.Begin) error {
+	log.Println("SQL: BEGIN;")
+	return nil
+}
+
+func (pg *PgOutputUtil) HandleCommit(record *pgoutput.Commit) error {
+	lsn := pglogrepl.LSN(record.LSN)
+	log.Println("SQL: COMMIT; -- LSN:", lsn.String())
+	return nil
 }
 
 func (pg *PgOutputUtil) HandleDelete(record *pgoutput.Delete) error {
