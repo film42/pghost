@@ -29,7 +29,7 @@ Why?:
 NOTES:
 
 - Current test bed is basically:
-```
+```sql
 -- create tables for original and replication
 create table yolos (id serial primary key);
 create table yolos2 (id serial primary key);
@@ -37,4 +37,8 @@ create table yolos2 (id serial primary key);
 insert into yolos select generate_series(1,10000000);
 -- create a publication for testing
 create publication pub_on_yolos for table yolos;
+```
+and then
+```
+go build && ./pghost
 ```
