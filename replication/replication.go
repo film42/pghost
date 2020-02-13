@@ -166,8 +166,6 @@ func (lr *LogicalReplicator) ReplicateUpToCheckpoint(ctx context.Context, name s
 		}
 	}
 
-	fmt.Println("done")
-
 	// If we've gotten to this point then we know that we have handled all changes up to the checkpoint LSN.
 	// In other words, we are done.
 	return nil

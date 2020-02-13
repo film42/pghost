@@ -67,6 +67,8 @@ func main() {
 	if err != nil {
 		log.Fatalln("Error replicating to the checkpoint LSN:", err)
 	}
+
+	log.Println("Replication completed, you may now switch to standard logical replication.")
 }
 
 func doSomeWork(ctx context.Context, conn *pgx.Conn) error {
