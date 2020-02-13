@@ -25,3 +25,16 @@ General Flow:
 
 Why?:
 - This tool is currently an experiment to see if it's possible to batch the synchronization part of logical replication to avoid vacuums from cleaning indexes. For large tables, it's been observed that after 12-48 hours of the synchronization starting, performance suffers due to vacuums not running.
+
+NOTES:
+
+- Current test bed is basically:
+```
+-- create tables for original and replication
+create table yolos (id serial primary key);
+create table yolos2 (id serial primary key);
+-- populate the original with random data
+insert into yolos select generate_series(1,10000000);
+-- create a publication for testing
+create publication pub_on_yolos for table yolos;
+```

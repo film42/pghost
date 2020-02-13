@@ -40,9 +40,10 @@ func main() {
 		log.Println("Ignoring error from trying to create the replication slot:", err)
 	}
 
-	// doSomeWork(ctx, queryConn)
-	// a := new(copy.CopyWithPq)
-	// a = a
+	err = doSomeWork(ctx, queryConn)
+	if err != nil {
+		log.Fatalln("Could not create some pending work in the replication slot:", err)
+	}
 
 	cpq := &copy.CopyWithPq{
 		SourceTable:      "yolos",
@@ -70,7 +71,7 @@ func main() {
 
 func doSomeWork(ctx context.Context, conn *pgx.Conn) error {
 	for i := 0; i < 5; i++ {
-		rows, err := conn.Query(ctx, "update yolos4 set date = now() where id = (select min(id) from yolos4);")
+		rows, err := conn.Query(ctx, "insert into yolos select max(id)+1 from yolos;")
 		if err != nil {
 			return err
 		}
