@@ -18,20 +18,20 @@ type SqlApplierFunc func(ctx context.Context, sqlStatements []string) error
 
 type LogicalReplicator struct {
 	Conn       *pgconn.PgConn
-	Handler    *PgOutputUtil
+	Processor  *PgOutputUtil
 	SqlApplier SqlApplierFunc
 }
 
 func NewLogicalReplicator(conn *pgconn.PgConn, sqlApplier SqlApplierFunc) *LogicalReplicator {
 	return &LogicalReplicator{
 		Conn:       conn,
-		Handler:    NewPgOutputUtil(),
+		Processor:  NewPgOutputUtil(),
 		SqlApplier: sqlApplier,
 	}
 }
 
 func (lr *LogicalReplicator) AddRelationMapping(relMap *RelationMapping) {
-	lr.Handler.AddRelationMapping(relMap)
+	lr.Processor.AddRelationMapping(relMap)
 }
 
 func (lr *LogicalReplicator) CurrentXLogPos(ctx context.Context) (pglogrepl.LSN, error) {
@@ -117,36 +117,36 @@ func (lr *LogicalReplicator) ReplicateUpToCheckpoint(ctx context.Context, name s
 
 				switch v := walMsg.(type) {
 				case *pgoutput.Relation:
-					lr.Handler.CacheRelation(v)
+					lr.Processor.CacheRelation(v)
 				case *pgoutput.Begin:
 					// Reset statement list.
 					statements = statements[:0]
-					sql, err := lr.Handler.BeginToSql(v)
+					sql, err := lr.Processor.BeginToSql(v)
 					if err != nil {
 						return err
 					}
 					statements = append(statements, sql)
 				case *pgoutput.Commit:
-					sql, err := lr.Handler.CommitToSql(v)
+					sql, err := lr.Processor.CommitToSql(v)
 					lastAckedLSN = pglogrepl.LSN(v.TransactionLSN)
 					if err != nil {
 						return err
 					}
 					statements = append(statements, sql)
 				case *pgoutput.Delete:
-					sql, err := lr.Handler.DeleteToSql(v)
+					sql, err := lr.Processor.DeleteToSql(v)
 					if err != nil {
 						return err
 					}
 					statements = append(statements, sql)
 				case *pgoutput.Insert:
-					sql, err := lr.Handler.InsertToSql(v)
+					sql, err := lr.Processor.InsertToSql(v)
 					if err != nil {
 						return err
 					}
 					statements = append(statements, sql)
 				case *pgoutput.Update:
-					sql, err := lr.Handler.UpdateToSql(v)
+					sql, err := lr.Processor.UpdateToSql(v)
 					if err != nil {
 						return err
 					}
