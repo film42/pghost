@@ -4,34 +4,47 @@ import (
 	"context"
 	"log"
 	"strings"
-	"time"
 
+	"github.com/film42/pghost/config"
 	"github.com/film42/pghost/copy"
-	"github.com/film42/pghost/pglogrepl"
 	"github.com/film42/pghost/replication"
 	"github.com/jackc/pgx/v4"
+	"github.com/spf13/cobra"
 )
 
 func main() {
+	replicateCmd := &cobra.Command{
+		Use:   "replicate [config]",
+		Short: "Replicate one table to another using logical replication with batched copy",
+		Args:  cobra.MinimumNArgs(1),
+		Run:   doReplication,
+	}
+
+	rootCmd := &cobra.Command{Use: "pghost"}
+	rootCmd.AddCommand(replicateCmd)
+	rootCmd.Execute()
+}
+
+func doReplication(cmd *cobra.Command, args []string) {
+	cfg, err := config.ParseConfig(args[0])
+	if err != nil {
+		log.Fatalln("Error parsing config:", err)
+	}
+
 	// Setup replication connection.
 	ctx := context.Background()
-	replicationConn, err := pgx.Connect(ctx, "dbname=postgres replication=database")
+	replicationConn, err := pgx.Connect(ctx, cfg.SourceConnectionForReplication)
 	if err != nil {
 		log.Fatalln("failed to connect to PostgreSQL server:", err)
 	}
 	defer replicationConn.Close(ctx)
 
 	// Setup queryable connection.
-	queryConn, err := pgx.Connect(ctx, "dbname=postgres")
+	queryConn, err := pgx.Connect(ctx, cfg.DestinationConnection)
 	if err != nil {
 		log.Fatalln("failed to connect to PostgreSQL server:", err)
 	}
 	defer queryConn.Close(ctx)
-
-	// TODO: Turn these into parameters.
-	checkpointLSN := pglogrepl.LSN(0)
-	publicationName := "pub_on_yolos"
-	replicationSlotName := "yolo12300000xyz"
 
 	// Create a replication slot to catch all future changes.
 	lr := replication.NewLogicalReplicator(replicationConn.PgConn(), func(ctx context.Context, statements []string) error {
@@ -45,42 +58,40 @@ func main() {
 	})
 
 	lr.AddRelationMapping(&replication.RelationMapping{
-		SourceNamespace:      "public",
-		SourceName:           "yolos",
-		DestinationNamespace: "public",
-		DestinationName:      "yolos2",
+		SourceNamespace:      cfg.SourceSchemaName,
+		SourceName:           cfg.SourceTableName,
+		DestinationNamespace: cfg.DestinationSchemaName,
+		DestinationName:      cfg.DestinationTableName,
 	})
 
-	// For testing we'll use a temporary slot.
-	err = lr.CreateReplicationSlot(ctx, replicationSlotName, true)
+	err = lr.CreateReplicationSlot(ctx, cfg.ReplicationSlotName, cfg.ReplicationSlotIsTemporary)
 	if err != nil {
-		log.Println("Ignoring error from trying to create the replication slot:", err)
+		log.Fatalln("Ignoring error from trying to create the replication slot:", err)
 	}
 
-	cpq := &copy.CopyWithPq{
-		SourceTable:      "yolos",
-		DestinationTable: "yolos2",
-		BatchSize:        100000,
-	}
-	err = cpq.CopyUsingPq(10)
+	log.Println("Starting COPY...")
+	cpq := &copy.CopyWithPq{Cfg: cfg}
+	err = cpq.DoCopy(ctx)
 	if err != nil {
-		log.Fatalln("Could not copy table:", err)
+		log.Fatalln("COPY process failed:", err)
 	}
+	log.Println("COPY Finished!")
 
+	// DEBUG: Generate some work so we can be sure we always replicate after COPY.
 	err = doSomeWork(ctx, queryConn)
 	if err != nil {
 		log.Fatalln("Could not create some pending work in the replication slot:", err)
 	}
 
 	// Get the most recent xlogpos as a checkpoint.
-	checkpointLSN, err = lr.CurrentXLogPos(ctx)
+	checkpointLSN, err := lr.CurrentXLogPos(ctx)
 	if err != nil {
 		log.Fatalln("Could not fetch current xlog pos:", err)
 	}
 
-	// Go!
+	// Replicate!
 	log.Println("CheckpointLSN:", checkpointLSN)
-	err = lr.ReplicateUpToCheckpoint(ctx, replicationSlotName, checkpointLSN, publicationName)
+	err = lr.ReplicateUpToCheckpoint(ctx, cfg.ReplicationSlotName, checkpointLSN, cfg.PublicationName)
 	if err != nil {
 		log.Fatalln("Error replicating to the checkpoint LSN:", err)
 	}
@@ -97,6 +108,5 @@ func doSomeWork(ctx context.Context, conn *pgx.Conn) error {
 		rows.Values() // Load
 		rows.Close()
 	}
-	time.Sleep(time.Second * 5)
 	return nil
 }

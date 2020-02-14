@@ -23,13 +23,14 @@ publication_name: pub_on_yolos
 
 # Specify the name of the replication slot. Leave blank for random.
 replication_slot_name: ""
+replication_slot_is_temporary: true
 
 # Parameters for the batch copying.
 # ID range to walk when using id range mode.
-copy_batch_size: 100000
+copy_batch_size: 100
 
 # Number of workers to run in parllel. Don't kill your database.
-copy_worker_count: 10
+copy_worker_count: 5
 
 # Use keyset pagination for more precise data ranges.
 # Warning: This is slow for really large tables but still might be

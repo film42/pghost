@@ -8,36 +8,34 @@ import (
 	"log"
 	"sync"
 
+	"github.com/film42/pghost/config"
 	"github.com/jackc/pgx/v4"
-	"github.com/kr/pretty"
 )
 
 type CopyWithPq struct {
-	minId            int64
-	maxId            int64
-	BatchSize        int64
-	SourceTable      string
-	DestinationTable string
+	minId int64
+	maxId int64
+
+	Cfg *config.Config
 }
 
 func (cb *CopyWithPq) CopyOneBatchCustomImpl(ctx context.Context, startingAtId int64) error {
-	srcConn, err := pgx.Connect(ctx, "dbname=postgres")
+	srcConn, err := pgx.Connect(ctx, cb.Cfg.SourceConnection)
 	if err != nil {
 		return err
 	}
 	defer srcConn.Close(ctx)
 
-	destConn, err := pgx.Connect(ctx, "dbname=postgres")
+	destConn, err := pgx.Connect(ctx, cb.Cfg.DestinationConnection)
 	if err != nil {
 		return err
 	}
 	defer destConn.Close(ctx)
 
-	copyToQuery := fmt.Sprintf("COPY (SELECT * FROM %s WHERE id >= %d AND id < (%d + %d)) TO STDOUT WITH BINARY", cb.SourceTable, startingAtId, startingAtId, cb.BatchSize)
-	copyFromQuery := fmt.Sprintf("COPY %s FROM STDIN WITH BINARY", cb.DestinationTable)
-
-	log.Println(copyToQuery)
-	log.Println(copyFromQuery)
+	copyToQuery := fmt.Sprintf("COPY (SELECT * FROM %s.%s WHERE id >= %d AND id < (%d + %d)) TO STDOUT WITH BINARY",
+		cb.Cfg.SourceSchemaName, cb.Cfg.SourceTableName, startingAtId, startingAtId, cb.Cfg.CopyBatchSize)
+	copyFromQuery := fmt.Sprintf("COPY %s.%s FROM STDIN WITH BINARY",
+		cb.Cfg.DestinationSchemaName, cb.Cfg.DestinationTableName)
 
 	cc := &CopyCmd{
 		FromConn:  destConn.PgConn(),
@@ -50,21 +48,24 @@ func (cb *CopyWithPq) CopyOneBatchCustomImpl(ctx context.Context, startingAtId i
 	return cc.Do(ctx)
 }
 
+// TODO: Remove
 func (cb *CopyWithPq) CopyOneBatch(ctx context.Context, startingAtId int64) error {
-	srcConn, err := pgx.Connect(ctx, "dbname=postgres")
+	srcConn, err := pgx.Connect(ctx, cb.Cfg.SourceConnection)
 	if err != nil {
 		return err
 	}
 	defer srcConn.Close(ctx)
 
-	destConn, err := pgx.Connect(ctx, "dbname=postgres")
+	destConn, err := pgx.Connect(ctx, cb.Cfg.DestinationConnection)
 	if err != nil {
 		return err
 	}
 	defer destConn.Close(ctx)
 
-	copyToQuery := fmt.Sprintf("COPY (SELECT * FROM %s WHERE id >= %d AND id < (%d + %d)) TO STDOUT WITH BINARY", cb.SourceTable, startingAtId, startingAtId, cb.BatchSize)
-	copyFromQuery := fmt.Sprintf("COPY %s FROM STDIN WITH BINARY", cb.DestinationTable)
+	copyToQuery := fmt.Sprintf("COPY (SELECT * FROM %s.%s WHERE id >= %d AND id < (%d + %d)) TO STDOUT WITH BINARY",
+		cb.Cfg.SourceSchemaName, cb.Cfg.SourceTableName, startingAtId, startingAtId, cb.Cfg.CopyBatchSize)
+	copyFromQuery := fmt.Sprintf("COPY %s.%s FROM STDIN WITH BINARY",
+		cb.Cfg.DestinationSchemaName, cb.Cfg.DestinationTableName)
 
 	log.Println(copyToQuery)
 	log.Println(copyFromQuery)
@@ -103,22 +104,23 @@ func (cb *CopyWithPq) CopyOneBatch(ctx context.Context, startingAtId int64) erro
 	return <-copyFromChan
 }
 
-func (cb *CopyWithPq) CopyUsingPq(workers int) error {
-	ctx := context.Background()
-	conn, err := pgx.Connect(ctx, "dbname=postgres host=/var/run/postgresql")
+func (cb *CopyWithPq) DoCopy(ctx context.Context) error {
+	srcConn, err := pgx.Connect(ctx, cb.Cfg.SourceConnection)
 	if err != nil {
 		return err
 	}
-	defer conn.Close(ctx)
+	defer srcConn.Close(ctx)
 
 	// Fetch the minId
-	err = conn.QueryRow(ctx, fmt.Sprintf("SELECT MIN(id) FROM %s", cb.SourceTable)).Scan(&cb.minId)
+	err = srcConn.QueryRow(ctx, fmt.Sprintf("SELECT MIN(id) FROM %s.%s",
+		cb.Cfg.SourceSchemaName, cb.Cfg.SourceTableName)).Scan(&cb.minId)
 	if err != nil {
 		return err
 	}
 
 	// Fetch the maxId
-	err = conn.QueryRow(ctx, fmt.Sprintf("SELECT MAX(id) FROM %s", cb.SourceTable)).Scan(&cb.maxId)
+	err = srcConn.QueryRow(ctx, fmt.Sprintf("SELECT MAX(id) FROM %s.%s",
+		cb.Cfg.SourceSchemaName, cb.Cfg.SourceTableName)).Scan(&cb.maxId)
 	if err != nil {
 		return err
 	}
@@ -131,7 +133,7 @@ func (cb *CopyWithPq) CopyUsingPq(workers int) error {
 	done := make(chan bool)
 
 	// Spawn workers.
-	for i := 0; i < workers; i++ {
+	for i := 0; i < cb.Cfg.CopyWorkerCount; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -145,9 +147,11 @@ func (cb *CopyWithPq) CopyUsingPq(workers int) error {
 					// err := cb.CopyOneBatch(ctx, nextId)
 					err := cb.CopyOneBatchCustomImpl(ctx, nextId)
 					if err != nil {
-						log.Println("WARNING!!! nextId:", nextId, "Found err while copying:", err)
 						errorsChan <- err
+						continue
 					}
+
+					log.Printf("Copied batch for range: %d through %d", nextId, nextId+int64(cb.Cfg.CopyBatchSize))
 				}
 			}
 		}()
@@ -163,17 +167,21 @@ func (cb *CopyWithPq) CopyUsingPq(workers int) error {
 		select {
 		case pendingWorkChan <- nextId:
 		case err := <-errorsChan:
-			panic(err)
+			return err
 			cancelFunc()
 		}
 
-		nextId += cb.BatchSize
+		nextId += int64(cb.Cfg.CopyBatchSize)
 	}
 
 	close(done)
 	wg.Wait()
 
-	pretty.Println(cb)
-
-	return nil
+	// Check for any errors.
+	select {
+	case err := <-errorsChan:
+		return err
+	default:
+		return nil
+	}
 }

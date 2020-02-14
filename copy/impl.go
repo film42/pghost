@@ -3,11 +3,9 @@ package copy
 import (
 	"bufio"
 	"context"
-	"fmt"
 	"io"
 	"sync"
 
-	// "github.com/jackc/pgconn/internal/ctxwatch"
 	"github.com/jackc/pgconn"
 	"github.com/jackc/pgio"
 	"github.com/jackc/pgproto3/v2"
@@ -36,7 +34,7 @@ func (c *CopyCmd) Do(ctx context.Context) error {
 		copyToErr := c.copyTo(ctx, writer)
 		errors <- copyToErr
 		writer.Close()
-		fmt.Println("(closd write half) Err from copyTo:", copyToErr)
+		// fmt.Println("(closd write half) Err from copyTo:", copyToErr)
 		// cancelFunc()
 		wg.Done()
 	}()
