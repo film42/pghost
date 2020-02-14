@@ -1,0 +1,37 @@
+---
+# The connection information for the src database.
+source_connection: dbname=postgres
+source_connection_for_replication: dbname=postgres replication=database
+
+# Table name to replicate.
+source_table_name: yolos
+source_schema_name: public
+
+# The connection information for the dest database.
+destination_connection: dbname=postgres
+destination_connection_for_replication: dbname=postgres replication=database
+
+# Table name to receive data. NOTE: Leave blank to keep the same as source.
+destination_table_name: yolos2
+destination_schema_name: public
+
+# The name of the publication on the src database that includes the
+# source table and schema. Without this, we'll receive no new changes.
+# You can leave this blank to create a new publication scoped to the
+# table specified in this config.
+publication_name: pub_on_yolos
+
+# Specify the name of the replication slot. Leave blank for random.
+replication_slot_name: ""
+
+# Parameters for the batch copying.
+# ID range to walk when using id range mode.
+copy_batch_size: 100000
+
+# Number of workers to run in parllel. Don't kill your database.
+copy_worker_count: 10
+
+# Use keyset pagination for more precise data ranges.
+# Warning: This is slow for really large tables but still might be
+# worth it.
+copy_use_keyset_pagination: false
