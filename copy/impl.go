@@ -7,7 +7,7 @@ import (
 	"sync"
 
 	"github.com/jackc/pgconn"
-	"github.com/jackc/pgio"
+	// "github.com/jackc/pgio"
 	"github.com/jackc/pgproto3/v2"
 )
 
@@ -110,7 +110,9 @@ func (c *CopyCmd) copyTo(ctx context.Context, writer io.Writer) error {
 		switch msg := msg.(type) {
 		case *pgproto3.CopyDone:
 		case *pgproto3.CopyData:
-			_, err := bufWriter.Write(msg.Data)
+			buf = buf[:0]
+			buf = msg.Encode(buf)
+			_, err := bufWriter.Write(buf)
 			if err != nil {
 				return err
 			}
@@ -193,63 +195,67 @@ func (c *CopyCmd) copyFrom(ctx context.Context, reader io.Reader) error {
 	// yolo := pgio.SetInt32
 	// yolo = yolo
 
+	// {
+	// 	// This is critical. This keeps things moving really fast.
+	// 	// The difference is ~50% vs ~170% cpu because of small
+	// 	// writes to the pg tcp conn.
+	// 	//connBuf  := bufio.NewWriterSize(pgConn.Conn(), 8192)
+	// 	buf = make([]byte, 0, 65536+10)
+	// 	buf = append(buf, 'd')
+	// 	sp := len(buf)
+	// 	reader = &R{reader}
+	// 	for {
+	// 		n, readErr := reader.Read(buf[5:cap(buf)])
+	// 		if n > 0 {
+	// 			buf = buf[0 : n+5]
+	// 			pgio.SetInt32(buf[sp:], int32(n+4))
+
+	// 			// The problem is that this doesn't batch so we're doing 19 byte writes forever.
+	// 			_, writeErr := pgConn.Conn().Write(buf)
+	// 			if writeErr != nil {
+	// 				// Write errors are always fatal, but we can't use asyncClose because we are in a different
+	// 				// goroutine.
+	// 				// EDIT: I made this a straigt up pgconn close.
+	// 				pgConn.Close(ctx)
+	// 				// copyErrChan <- writeErr
+	// 				// cancelFunc()
+	// 				// return writeErr
+	// 				err = writeErr
+	// 				break
+	// 			}
+	// 		}
+	// 		if readErr == io.EOF {
+	// 			err = readErr
+	// 			// flushErr := connBuf.Flush()
+	// 			// if flushErr != nil {
+	// 			// 	err = flushErr
+	// 			// }
+	// 			break
+	// 		}
+	// 		if readErr != nil {
+	// 			err = readErr
+	// 			break
+	// 			// copyErrChan <- readErr
+	// 			// cancelFunc()
+	// 			// return readErr
+	// 		}
+
+	// 		//			select {
+	// 		//			case <-abortCopyChan:
+	// 		//				return
+	// 		//			default:
+	// 		//			}
+	// 	}
+	// }
+
 	{
-		// This is critical. This keeps things moving really fast.
-		// The difference is ~50% vs ~170% cpu because of small
-		// writes to the pg tcp conn.
-		//connBuf  := bufio.NewWriterSize(pgConn.Conn(), 8192)
-		buf = make([]byte, 0, 65536+10)
-		buf = append(buf, 'd')
-		sp := len(buf)
-		reader = &R{reader}
-		for {
-			n, readErr := reader.Read(buf[5:cap(buf)])
-			if n > 0 {
-				buf = buf[0 : n+5]
-				pgio.SetInt32(buf[sp:], int32(n+4))
-
-				// The problem is that this doesn't batch so we're doing 19 byte writes forever.
-				_, writeErr := pgConn.Conn().Write(buf)
-				if writeErr != nil {
-					// Write errors are always fatal, but we can't use asyncClose because we are in a different
-					// goroutine.
-					// EDIT: I made this a straigt up pgconn close.
-					pgConn.Close(ctx)
-					// copyErrChan <- writeErr
-					// cancelFunc()
-					// return writeErr
-					err = writeErr
-					break
-				}
-			}
-			if readErr == io.EOF {
-				err = readErr
-				// flushErr := connBuf.Flush()
-				// if flushErr != nil {
-				// 	err = flushErr
-				// }
-				break
-			}
-			if readErr != nil {
-				err = readErr
-				break
-				// copyErrChan <- readErr
-				// cancelFunc()
-				// return readErr
-			}
-
-			//			select {
-			//			case <-abortCopyChan:
-			//				return
-			//			default:
-			//			}
+		buf = make([]byte, 65536+10)
+		_, err = io.CopyBuffer(pgConn.Conn(), reader, buf)
+		if err != nil {
+			pgConn.Close(ctx)
+			return err
 		}
 	}
-
-	// {
-	// 	buf = make([]byte, 8192)
-	// 	_, err = io.CopyBuffer(pgConn.Conn(), reader, buf)
-	// }
 
 	// So we're flushing everything to the DB, but not getting anything back. Why?
 
@@ -258,7 +264,7 @@ func (c *CopyCmd) copyFrom(ctx context.Context, reader io.Reader) error {
 	cancelFunc = cancelFunc
 
 	buf = buf[:0]
-	if err == io.EOF || pgErr != nil {
+	if err == nil || pgErr != nil {
 		copyDone := &pgproto3.CopyDone{}
 		buf = copyDone.Encode(buf)
 	} else {

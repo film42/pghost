@@ -8,8 +8,8 @@ source_table_name: yolos
 source_schema_name: public
 
 # The connection information for the dest database.
-destination_connection: dbname=postgres
-destination_connection_for_replication: dbname=postgres replication=database
+destination_connection: dbname=postgres user=remote_admin password=remote_admin host=localhost port=6432
+destination_connection_for_replication: dbname=postgres user=remote_admin password=remote_admin host=localhost port=6432  replication=database
 
 # Table name to receive data. NOTE: Leave blank to keep the same as source.
 destination_table_name: yolos2
@@ -24,7 +24,7 @@ publication_name: pub_on_yolos
 # Specify the name of the replication slot. Leave blank for random.
 replication_slot_name: ""
 # Continue replicating after the post-copy checkpoint LSN has been reached.
-replication_continue_after_copy_checkpoint: true
+replication_continue_after_copy_checkpoint: false
 # Should the replication slot only exist for the life of the process.
 replication_slot_is_temporary: true
 # Skip the creation of the replication slot, ex: using an existing replication slot.
