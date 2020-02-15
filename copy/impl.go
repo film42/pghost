@@ -7,7 +7,6 @@ import (
 	"sync"
 
 	"github.com/jackc/pgconn"
-	// "github.com/jackc/pgio"
 	"github.com/jackc/pgproto3/v2"
 )
 

@@ -3,9 +3,11 @@ package copy
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
+	"strings"
 	"sync"
 
 	"github.com/film42/pghost/config"
@@ -64,7 +66,7 @@ func WalkTableIds(ctx context.Context, conn *pgx.Conn, schemaName, tableName str
 	return iws, nil
 }
 
-func (cb *CopyWithPq) CopyOneBatchCustomImpl(ctx context.Context, idRange *IdRange) error {
+func (cb *CopyWithPq) CopyOneBatchCustomImpl(ctx context.Context, srcTableColumns []string, idRange *IdRange) error {
 	srcConn, err := pgx.Connect(ctx, cb.Cfg.SourceConnection)
 	if err != nil {
 		return err
@@ -77,10 +79,11 @@ func (cb *CopyWithPq) CopyOneBatchCustomImpl(ctx context.Context, idRange *IdRan
 	}
 	defer destConn.Close(ctx)
 
-	copyToQuery := fmt.Sprintf("COPY (SELECT * FROM %s.%s WHERE id >= %d AND id <= %d) TO STDOUT WITH BINARY",
-		cb.Cfg.SourceSchemaName, cb.Cfg.SourceTableName, idRange.StartAt, idRange.EndAt)
-	copyFromQuery := fmt.Sprintf("COPY %s.%s FROM STDIN WITH BINARY",
-		cb.Cfg.DestinationSchemaName, cb.Cfg.DestinationTableName)
+	columnNames := strings.Join(srcTableColumns, ", ")
+	copyToQuery := fmt.Sprintf("COPY (SELECT (%s) FROM %s.%s WHERE id >= %d AND id <= %d) TO STDOUT",
+		columnNames, cb.Cfg.SourceSchemaName, cb.Cfg.SourceTableName, idRange.StartAt, idRange.EndAt)
+	copyFromQuery := fmt.Sprintf("COPY %s.%s (%s) FROM STDIN",
+		cb.Cfg.DestinationSchemaName, cb.Cfg.DestinationTableName, columnNames)
 
 	cc := &CopyCmd{
 		FromConn:  destConn.PgConn(),
@@ -107,9 +110,9 @@ func (cb *CopyWithPq) CopyOneBatch(ctx context.Context, startingAtId int64) erro
 	}
 	defer destConn.Close(ctx)
 
-	copyToQuery := fmt.Sprintf("COPY (SELECT * FROM %s.%s WHERE id >= %d AND id < (%d + %d)) TO STDOUT WITH BINARY",
+	copyToQuery := fmt.Sprintf("COPY (SELECT * FROM %s.%s WHERE id >= %d AND id < (%d + %d)) TO STDOUT",
 		cb.Cfg.SourceSchemaName, cb.Cfg.SourceTableName, startingAtId, startingAtId, cb.Cfg.CopyBatchSize)
-	copyFromQuery := fmt.Sprintf("COPY %s.%s FROM STDIN WITH BINARY",
+	copyFromQuery := fmt.Sprintf("COPY %s.%s FROM STDIN",
 		cb.Cfg.DestinationSchemaName, cb.Cfg.DestinationTableName)
 
 	log.Println(copyToQuery)
@@ -149,12 +152,45 @@ func (cb *CopyWithPq) CopyOneBatch(ctx context.Context, startingAtId int64) erro
 	return <-copyFromChan
 }
 
+func getColumnNamesForTable(ctx context.Context, conn *pgx.Conn, schemaName, tableName string) ([]string, error) {
+	sql := fmt.Sprintf("SELECT column_name FROM information_schema.columns WHERE table_schema = '%s' and table_name = '%s'",
+		schemaName, tableName)
+
+	rows, err := conn.Query(ctx, sql)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	columnNames := []string{}
+	for rows.Next() {
+		var columnName string
+		err = rows.Scan(&columnName)
+		if err != nil {
+			return nil, err
+		}
+		columnNames = append(columnNames, columnName)
+	}
+
+	if len(columnNames) == 0 {
+		return nil, errors.New("error: could not find any column on source table")
+	}
+
+	return columnNames, nil
+}
+
 func (cb *CopyWithPq) DoCopy(ctx context.Context) error {
 	srcConn, err := pgx.Connect(ctx, cb.Cfg.SourceConnection)
 	if err != nil {
 		return err
 	}
 	defer srcConn.Close(ctx)
+
+	srcTableColumnNames, err := getColumnNamesForTable(ctx, srcConn,
+		cb.Cfg.SourceSchemaName, cb.Cfg.SourceTableName)
+	if err != nil {
+		return err
+	}
 
 	var idRangeSeq IdRangeSeq
 	if cb.Cfg.CopyUseKeysetPagination {
@@ -189,7 +225,7 @@ func (cb *CopyWithPq) DoCopy(ctx context.Context) error {
 					return
 				case nextIdRange := <-pendingWorkChan:
 					// err := cb.CopyOneBatch(ctx, nextId)
-					err := cb.CopyOneBatchCustomImpl(ctx, nextIdRange)
+					err := cb.CopyOneBatchCustomImpl(ctx, srcTableColumnNames, nextIdRange)
 					if err != nil {
 						errorsChan <- err
 						continue
