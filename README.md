@@ -1,4 +1,4 @@
-Pghost
+Pghost (experimental)
 ======
 
 Pronounced: pee-gee-ghost. It's meant to be somewhat similar in spirit to gh-ost.
@@ -66,51 +66,28 @@ The thought here is that:
 
 In general, the destination database will be inconsistent until the COPY and initial replication to some checkpoint LSN have completed. For example, suppose several UPDATE queries are applied while COPY is running. Then, as the replication step applies change from the WAL, it will overwrite the "most recent" version with each initial revision, but will eventually match what's in master so long as the primary key is not changed.
 
-------------------------
+### Technical Details
 
-Postgres online schema/ data migration.
+Here's the flow pghost follows:
 
-Testing the following:
-1. Create a logical replication slot. DONE.
-2. Let the slot continue to collect WAL. DONE.
-3. Start a keyset page (or naive id range seek) in batches. This allows the vacuum to run. DONE. TODO: Impl keyset.
-4. Capture the LSN (using IDENTIFY SYSTEM) after we've copied the last row. DONE.
-5. Use a custom apply worker to merge data from rep slot "restart lsn" to "current lsn". DONE.
-6. Either continue to let the custom apply worker run, or switch to walrecv apply.
+1. Create a logical replication slot to store all pending WAL changes.
+2. Start a parallel batched COPY process to move source table contents to destination table.
+3. Grab a "checkpoint LSN" (current wal LSN) after COPY is finished.
+4. Consume from logical replication slot, merging in changes, until the "checkpoint LSN" has been reached.
 
-Logical Replication:
-1. Can parse pgoutput. DONE.
-2. Can format attribute types into SQL expressions. KINDA DONE.
-3. Can upsert into the table up to some LSN. DONE.
+After (4) has completed, the source and destination tables will be synchronized. The replication slot can be used with a postgresql subscription to continue replicating changes.
 
-General Flow:
-1. Creates a logical replication using pgoutput plugin. DONE.
-2. Begins a sync using walking IDs or keyset pagination. This allows vacuums to run and indexes to be cleaned. DONE.
-3. After (2) completes, save the current LSN as a checkpoint. DONE.
-3. Subscribe to the replication slot upserting SQL into the DB. Slow but good enough for now. Upsert all changes up to the checkpoint LSN. DONE.
-4. After (3), switch back to standard pgoutput + postgres replication now that no conflicts will happen.
+### Future Work and TODOs
 
-Why?:
-- This tool is currently an experiment to see if it's possible to batch the synchronization part of logical replication to avoid vacuums from cleaning indexes. For large tables, it's been observed that after 12-48 hours of the synchronization starting, performance suffers due to vacuums not running.
+- Make the SQL applier much more robust.
+- Make pgoutput to SQL much more robust.
+- Integration tests to verify conflict resolution.
+- Support migration of multiple tables.
+- Auto-create subscription to continue replication.
+- Better logging.
+- Handle message when replication slot is dropped.
+- Update the seq on the destination table so auto-increment will work.
 
-Misc TODO:
-- Handle replication slot dropped.
-- Handle server is going down.
-- Update the seq on the destination table so autoincr will work.
+### License
 
-NOTES:
-
-- Current test bed is basically:
-```sql
--- create tables for original and replication
-create table yolos (id serial primary key);
-create table yolos2 (id serial primary key);
--- populate the original with random data
-insert into yolos select generate_series(1,10000000);
--- create a publication for testing
-create publication pub_on_yolos for table yolos;
-```
-and then
-```
-go build && ./pghost
-```
+MIT
