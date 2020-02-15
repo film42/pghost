@@ -1,6 +1,8 @@
 Pghost
 ======
 
+Pronounced: pee-gee-ghost. It's meant to be somewhat similar in spirit to gh-ost.
+
 ### Description
 
 Pghost synchronizes large tables between postgresql databases. Pghost will perform a parallel batched COPY of your table and merge in changes using the logical replication pgoutput plugin. Once pghost has finished running, your source and destination tables will be consistent and you can optionally choose to continue replicating changes from the source table by attaching a new subscription to the replication slot made by pghost.
