@@ -30,6 +30,7 @@ func KeysetPaginateTable(ctx context.Context, conn *pgx.Conn, schemaName, tableN
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 
 	ids := []int64{}
 	for rows.Next() {
@@ -40,7 +41,6 @@ func KeysetPaginateTable(ctx context.Context, conn *pgx.Conn, schemaName, tableN
 		}
 		ids = append(ids, id)
 	}
-	rows.Close()
 
 	if len(ids) == 0 {
 		return &keysetSeq{pages: nil, pos: 0}, nil
