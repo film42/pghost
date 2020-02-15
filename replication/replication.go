@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgconn"
 	"github.com/jackc/pgproto3/v2"
 
+	"github.com/film42/pghost/config"
 	"github.com/film42/pghost/pglogrepl"
 	"github.com/film42/pghost/pgoutput"
 )
@@ -20,10 +21,12 @@ type LogicalReplicator struct {
 	Conn       *pgconn.PgConn
 	Processor  *PgOutputUtil
 	SqlApplier SqlApplierFunc
+	Cfg        *config.Config
 }
 
-func NewLogicalReplicator(conn *pgconn.PgConn, sqlApplier SqlApplierFunc) *LogicalReplicator {
+func NewLogicalReplicator(cfg *config.Config, conn *pgconn.PgConn, sqlApplier SqlApplierFunc) *LogicalReplicator {
 	return &LogicalReplicator{
+		Cfg:        cfg,
 		Conn:       conn,
 		Processor:  NewPgOutputUtil(),
 		SqlApplier: sqlApplier,
@@ -71,19 +74,31 @@ func (lr *LogicalReplicator) ReplicateUpToCheckpoint(ctx context.Context, name s
 	// Preload the statements to be applied.
 	statements := make([]string, 0, 1024)
 
+	rcvTimeoutDuration := time.Second * 10
+	lastStandbyStatusUpdateWasAt := time.Now()
+
 	// Replicate until we reach the provided checkpoint.
 	// NOTE: This is best effor, so it's ok if we go beyond the checkpoint LSN a little bit
 	// since the main goal is to transition to the builtin wal sender worker.
-	for lastAckedLSN < checkpointLSN {
+	for lastAckedLSN < checkpointLSN || lr.Cfg.ReplicationContinueAfterCheckpoint {
+		var sendStandbyStatusUpdate bool
+
 		// NOTE: We should tick at least once every 10 seconds as a heart beat.
-		rcvCtx, cancelFunc := context.WithTimeout(ctx, time.Second*10)
+		rcvCtx, cancelFunc := context.WithTimeout(ctx, rcvTimeoutDuration)
+
+		// Check if we've been in a busy loop and should send a status update now.
+		if lastStandbyStatusUpdateWasAt.Add(rcvTimeoutDuration).Before(time.Now()) {
+			sendStandbyStatusUpdate = true
+			cancelFunc()
+		}
 
 		// Receive the mesasge
 		msg, err := lr.Conn.ReceiveMessage(rcvCtx)
 		cancelFunc()
 		switch {
 		case pgconn.Timeout(err):
-			// Send a status update.
+			// Send a status update if we've been idle too long.
+			sendStandbyStatusUpdate = true
 		case err != nil:
 			return err
 		}
@@ -99,6 +114,7 @@ func (lr *LogicalReplicator) ReplicateUpToCheckpoint(ctx context.Context, name s
 				if err != nil {
 					return err
 				}
+				sendStandbyStatusUpdate = pkm.ReplyRequested
 				// Update the latest ack LSN if it's older than the server wal end.
 				if pkm.ServerWALEnd > lastAckedLSN {
 					lastAckedLSN = pkm.ServerWALEnd
@@ -132,6 +148,7 @@ func (lr *LogicalReplicator) ReplicateUpToCheckpoint(ctx context.Context, name s
 					if err != nil {
 						return err
 					}
+					sendStandbyStatusUpdate = true
 					statements = append(statements, sql)
 				case *pgoutput.Delete:
 					sql, err := lr.Processor.DeleteToSql(v)
@@ -175,18 +192,22 @@ func (lr *LogicalReplicator) ReplicateUpToCheckpoint(ctx context.Context, name s
 			}
 		}
 
-		// Only ACK if the sql applier finished OK.
-		err = pglogrepl.SendStandbyStatusUpdate(ctx, lr.Conn,
-			pglogrepl.StandbyStatusUpdate{
-				WALApplyPosition: lastAckedLSN,
-				WALFlushPosition: lastAckedLSN,
-				WALWritePosition: lastAckedLSN,
-			})
-		if err != nil {
-			return err
-		}
-		log.Println("LSN Status Update:", lastAckedLSN)
+		if sendStandbyStatusUpdate {
+			// Only ACK if the sql applier finished OK.
+			err = pglogrepl.SendStandbyStatusUpdate(ctx, lr.Conn,
+				pglogrepl.StandbyStatusUpdate{
+					WALApplyPosition: lastAckedLSN,
+					WALFlushPosition: lastAckedLSN,
+					WALWritePosition: lastAckedLSN,
+				})
+			if err != nil {
+				return err
+			}
 
+			// Update our internal timer.
+			lastStandbyStatusUpdateWasAt = time.Now()
+			log.Println("LSN Status Update:", lastAckedLSN)
+		}
 	}
 
 	// If we've gotten to this point then we know that we have handled all changes up to the checkpoint LSN.

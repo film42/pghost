@@ -23,11 +23,16 @@ publication_name: pub_on_yolos
 
 # Specify the name of the replication slot. Leave blank for random.
 replication_slot_name: ""
+# Continue replicating after the post-copy checkpoint LSN has been reached.
+replication_continue_after_copy_checkpoint: true
+# Should the replication slot only exist for the life of the process.
 replication_slot_is_temporary: true
+# Skip the creation of the replication slot, ex: using an existing replication slot.
+replication_slot_skip_create: false
 
 # Parameters for the batch copying.
 # ID range to walk when using id range mode.
-copy_batch_size: 1000
+copy_batch_size: 100000
 
 # Number of workers to run in parllel. Don't kill your database.
 copy_worker_count: 10

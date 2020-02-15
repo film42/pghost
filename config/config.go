@@ -15,9 +15,11 @@ type Config struct {
 	DestinationTableName  string `yaml:"destination_table_name"`
 	DestinationSchemaName string `yaml:"destination_schema_name"`
 
-	PublicationName            string `yaml:"publication_name"`
-	ReplicationSlotName        string `yaml:"replication_slot_name"`
-	ReplicationSlotIsTemporary bool   `yaml:"replication_slot_is_temporary"`
+	PublicationName                    string `yaml:"publication_name"`
+	ReplicationSlotName                string `yaml:"replication_slot_name"`
+	ReplicationSlotIsTemporary         bool   `yaml:"replication_slot_is_temporary"`
+	ReplicationSlotSkipCreate          bool   `yaml:"replication_slot_skip_create"`
+	ReplicationContinueAfterCheckpoint bool   `yaml:"replication_continue_after_copy_checkpoint"`
 
 	CopyBatchSize           int  `yaml:"copy_batch_size"`
 	CopyWorkerCount         int  `yaml:"copy_worker_count"`

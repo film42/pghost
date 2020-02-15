@@ -47,7 +47,7 @@ func doReplication(cmd *cobra.Command, args []string) {
 	defer queryConn.Close(ctx)
 
 	// Create a replication slot to catch all future changes.
-	lr := replication.NewLogicalReplicator(replicationConn.PgConn(), func(ctx context.Context, statements []string) error {
+	lr := replication.NewLogicalReplicator(cfg, replicationConn.PgConn(), func(ctx context.Context, statements []string) error {
 		// An applier will be handed sql statements that need to be applied to the target
 		// database. The Logical Replicator will use this to determine if the results were
 		// successfully applied or not.
@@ -64,9 +64,12 @@ func doReplication(cmd *cobra.Command, args []string) {
 		DestinationName:      cfg.DestinationTableName,
 	})
 
-	err = lr.CreateReplicationSlot(ctx, cfg.ReplicationSlotName, cfg.ReplicationSlotIsTemporary)
-	if err != nil {
-		log.Fatalln("Ignoring error from trying to create the replication slot:", err)
+	// Check if we should skip the creation (existing replication slot)
+	if !cfg.ReplicationSlotSkipCreate {
+		err = lr.CreateReplicationSlot(ctx, cfg.ReplicationSlotName, cfg.ReplicationSlotIsTemporary)
+		if err != nil {
+			log.Fatalln("Could not create the replication slot:", err)
+		}
 	}
 
 	log.Println("Starting COPY...")
