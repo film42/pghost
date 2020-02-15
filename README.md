@@ -11,7 +11,7 @@ Why bother? Pghost is built to help with moving large tables where doing a seria
 
 ### Compatibility
 
-If your table does not use `id` or can't avoid altering the `id` column while pghost is running, you cannot use this or will end up with an inconsistent data copy.
+If your table does not use `id` as a primary key or can't avoid altering the `id` (primary key) column while pghost is running, you cannot use this or will end up with an inconsistent data copy.
 
 ### Getting Started
 
