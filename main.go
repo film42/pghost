@@ -39,6 +39,13 @@ func doReplication(cmd *cobra.Command, args []string) {
 	}
 	defer replicationConn.Close(ctx)
 
+	// Demo work conn.
+	demoWorkConn, err := pgx.Connect(ctx, cfg.SourceConnection)
+	if err != nil {
+		log.Fatalln("failed to connect to PostgreSQL server:", err)
+	}
+	defer demoWorkConn.Close(ctx)
+
 	// Setup queryable connection.
 	queryConn, err := pgx.Connect(ctx, cfg.DestinationConnection)
 	if err != nil {
@@ -66,13 +73,16 @@ func doReplication(cmd *cobra.Command, args []string) {
 
 	// Check if we should skip the creation (existing replication slot)
 	if !cfg.ReplicationSlotSkipCreate {
+		log.Printf("Creating replication slot: %s, is_temporary: %v",
+			cfg.ReplicationSlotName, cfg.ReplicationSlotIsTemporary)
 		err = lr.CreateReplicationSlot(ctx, cfg.ReplicationSlotName, cfg.ReplicationSlotIsTemporary)
 		if err != nil {
 			log.Fatalln("Could not create the replication slot:", err)
 		}
 	}
 
-	log.Println("Starting COPY...")
+	log.Printf("Starting parallel COPY: Workers: %d, BatchSize: %d, KeysetPagination: %v",
+		cfg.CopyWorkerCount, cfg.CopyBatchSize, cfg.CopyUseKeysetPagination)
 	cpq := &copy.CopyWithPq{Cfg: cfg}
 	err = cpq.DoCopy(ctx)
 	if err != nil {
@@ -81,7 +91,7 @@ func doReplication(cmd *cobra.Command, args []string) {
 	log.Println("COPY Finished!")
 
 	// DEBUG: Generate some work so we can be sure we always replicate after COPY.
-	err = doSomeWork(ctx, queryConn)
+	err = doSomeWork(ctx, demoWorkConn)
 	if err != nil {
 		log.Fatalln("Could not create some pending work in the replication slot:", err)
 	}
@@ -93,7 +103,7 @@ func doReplication(cmd *cobra.Command, args []string) {
 	}
 
 	// Replicate!
-	log.Println("CheckpointLSN:", checkpointLSN)
+	log.Println("Starting replication with upserts up to checkpoint LSN:", checkpointLSN)
 	err = lr.ReplicateUpToCheckpoint(ctx, cfg.ReplicationSlotName, checkpointLSN, cfg.PublicationName)
 	if err != nil {
 		log.Fatalln("Error replicating to the checkpoint LSN:", err)
