@@ -49,7 +49,7 @@ $ pghost replicate examples/config.yaml
 Pghost needs to deal with conflict resolution because the COPY step is run in batches and in parallel. Here's how pghost resolves conflicts during the post-COPY replication flow:
 
 | pgoutput message | destination table | action |
--------------------------------------------------
+|------------------|-------------------|--------|
 | `INSERT`   | record does not exist  | insert |
 | `INSERT`   | record exists          | on conflict do nothing |
 | `UPDATE`   | record does not exist  | do nothing |
