@@ -19,9 +19,9 @@ type Config struct {
 	ReplicationSlotName        string `yaml:"replication_slot_name"`
 	ReplicationSlotIsTemporary bool   `yaml:"replication_slot_is_temporary"`
 
-	CopyBatchSize       int  `yaml:"copy_batch_size"`
-	CopyWorkerCount     int  `yaml:"copy_worker_count"`
-	UseKeysetPagination bool `yaml:"use_keyset_pagination"`
+	CopyBatchSize           int  `yaml:"copy_batch_size"`
+	CopyWorkerCount         int  `yaml:"copy_worker_count"`
+	CopyUseKeysetPagination bool `yaml:"copy_use_keyset_pagination"`
 }
 
 func (c *Config) generateMissingValues() error {

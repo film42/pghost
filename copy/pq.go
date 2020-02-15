@@ -12,6 +12,11 @@ import (
 	"github.com/jackc/pgx/v4"
 )
 
+type IdRange struct {
+	StartAt int64
+	EndAt   int64
+}
+
 type CopyWithPq struct {
 	minId int64
 	maxId int64
@@ -19,7 +24,47 @@ type CopyWithPq struct {
 	Cfg *config.Config
 }
 
-func (cb *CopyWithPq) CopyOneBatchCustomImpl(ctx context.Context, startingAtId int64) error {
+type IdRangeSeq interface {
+	Next() *IdRange
+}
+
+type indexWalkSeq struct {
+	minId     int64
+	maxId     int64
+	currentId int64
+	batchSize int
+}
+
+func (s *indexWalkSeq) Next() *IdRange {
+	if s.currentId >= s.maxId {
+		return nil
+	}
+	endAt := s.currentId + int64(s.batchSize) - 1
+	ir := &IdRange{StartAt: s.currentId, EndAt: endAt}
+	s.currentId = endAt + 1
+	return ir
+}
+
+func WalkTableIds(ctx context.Context, conn *pgx.Conn, schemaName, tableName string, batchSize int) (IdRangeSeq, error) {
+	iws := &indexWalkSeq{batchSize: batchSize}
+
+	// Fetch the minId
+	err := conn.QueryRow(ctx, fmt.Sprintf("SELECT MIN(id) FROM %s.%s", schemaName, tableName)).Scan(&iws.minId)
+	if err != nil {
+		return nil, err
+	}
+	iws.currentId = iws.minId
+
+	// Fetch the maxId
+	err = conn.QueryRow(ctx, fmt.Sprintf("SELECT MAX(id) FROM %s.%s", schemaName, tableName)).Scan(&iws.maxId)
+	if err != nil {
+		return nil, err
+	}
+
+	return iws, nil
+}
+
+func (cb *CopyWithPq) CopyOneBatchCustomImpl(ctx context.Context, idRange *IdRange) error {
 	srcConn, err := pgx.Connect(ctx, cb.Cfg.SourceConnection)
 	if err != nil {
 		return err
@@ -32,8 +77,8 @@ func (cb *CopyWithPq) CopyOneBatchCustomImpl(ctx context.Context, startingAtId i
 	}
 	defer destConn.Close(ctx)
 
-	copyToQuery := fmt.Sprintf("COPY (SELECT * FROM %s.%s WHERE id >= %d AND id < (%d + %d)) TO STDOUT WITH BINARY",
-		cb.Cfg.SourceSchemaName, cb.Cfg.SourceTableName, startingAtId, startingAtId, cb.Cfg.CopyBatchSize)
+	copyToQuery := fmt.Sprintf("COPY (SELECT * FROM %s.%s WHERE id >= %d AND id <= %d) TO STDOUT WITH BINARY",
+		cb.Cfg.SourceSchemaName, cb.Cfg.SourceTableName, idRange.StartAt, idRange.EndAt)
 	copyFromQuery := fmt.Sprintf("COPY %s.%s FROM STDIN WITH BINARY",
 		cb.Cfg.DestinationSchemaName, cb.Cfg.DestinationTableName)
 
@@ -111,23 +156,22 @@ func (cb *CopyWithPq) DoCopy(ctx context.Context) error {
 	}
 	defer srcConn.Close(ctx)
 
-	// Fetch the minId
-	err = srcConn.QueryRow(ctx, fmt.Sprintf("SELECT MIN(id) FROM %s.%s",
-		cb.Cfg.SourceSchemaName, cb.Cfg.SourceTableName)).Scan(&cb.minId)
-	if err != nil {
-		return err
+	var idRangeSeq IdRangeSeq
+	if cb.Cfg.CopyUseKeysetPagination {
+		idRangeSeq, err = KeysetPaginateTable(ctx, srcConn,
+			cb.Cfg.SourceSchemaName, cb.Cfg.SourceTableName, cb.Cfg.CopyBatchSize)
+	} else {
+		idRangeSeq, err = WalkTableIds(ctx, srcConn,
+			cb.Cfg.SourceSchemaName, cb.Cfg.SourceTableName, cb.Cfg.CopyBatchSize)
 	}
-
-	// Fetch the maxId
-	err = srcConn.QueryRow(ctx, fmt.Sprintf("SELECT MAX(id) FROM %s.%s",
-		cb.Cfg.SourceSchemaName, cb.Cfg.SourceTableName)).Scan(&cb.maxId)
+	// Check error for both IdRangeSeq builders above.
 	if err != nil {
 		return err
 	}
 
 	errorsChan := make(chan error, 100)
 	// This needs to be blocking so we can know all work has been handed off.
-	pendingWorkChan := make(chan int64)
+	pendingWorkChan := make(chan *IdRange)
 	wg := sync.WaitGroup{}
 	ctx, cancelFunc := context.WithCancel(context.Background())
 	done := make(chan bool)
@@ -143,35 +187,33 @@ func (cb *CopyWithPq) DoCopy(ctx context.Context) error {
 					return
 				case <-ctx.Done():
 					return
-				case nextId := <-pendingWorkChan:
+				case nextIdRange := <-pendingWorkChan:
 					// err := cb.CopyOneBatch(ctx, nextId)
-					err := cb.CopyOneBatchCustomImpl(ctx, nextId)
+					err := cb.CopyOneBatchCustomImpl(ctx, nextIdRange)
 					if err != nil {
 						errorsChan <- err
 						continue
 					}
 
-					log.Printf("Copied batch for range: %d through %d", nextId, nextId+int64(cb.Cfg.CopyBatchSize))
+					log.Printf("Copied batch for range: %d through %d", nextIdRange.StartAt, nextIdRange.EndAt)
 				}
 			}
 		}()
 	}
 
 	// Send work with blocking chan.
-	nextId := cb.minId
 	for {
-		if nextId > cb.maxId {
+		nextIdRange := idRangeSeq.Next()
+		if nextIdRange == nil {
 			break
 		}
 
 		select {
-		case pendingWorkChan <- nextId:
+		case pendingWorkChan <- nextIdRange:
 		case err := <-errorsChan:
 			return err
 			cancelFunc()
 		}
-
-		nextId += int64(cb.Cfg.CopyBatchSize)
 	}
 
 	close(done)
