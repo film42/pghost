@@ -48,7 +48,7 @@ $ pghost replicate examples/config.yaml
 
 ### Replication With Conflict Resolution
 
-Pghost needs to deal with conflict resolution because the COPY step is run in batches and in parallel. Here's how pghost resolves conflicts during the post-COPY replication flow:
+Pghost needs to deal with conflict resolution because the COPY step is run in batches and in parallel. The strategy is essentially "last write wins" but we can drop conflicting inserts. Here's how pghost resolves conflicts during the post-COPY replication flow:
 
 | pgoutput message | destination table | action |
 |------------------|-------------------|--------|
