@@ -53,10 +53,10 @@ func (lr *LogicalReplicator) IdentifySystem(ctx context.Context) (*pglogrepl.Ide
 	return &isr, nil
 }
 
-func (lr *LogicalReplicator) CreateReplicationSlot(ctx context.Context, name string, temporary bool) error {
-	_, err := pglogrepl.CreateReplicationSlot(ctx, lr.Conn, name, "pgoutput",
+func (lr *LogicalReplicator) CreateReplicationSlot(ctx context.Context, name string, temporary bool) (*pglogrepl.CreateReplicationSlotResult, error) {
+	result, err := pglogrepl.CreateReplicationSlot(ctx, lr.Conn, name, "pgoutput",
 		pglogrepl.CreateReplicationSlotOptions{Temporary: temporary})
-	return err
+	return result, err
 }
 
 func (lr *LogicalReplicator) ReplicateUpToCheckpoint(ctx context.Context, name string, checkpointLSN pglogrepl.LSN, publication string) error {

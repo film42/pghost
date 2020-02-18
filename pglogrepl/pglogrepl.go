@@ -141,7 +141,7 @@ func CreateReplicationSlot(
 	slotName string,
 	outputPlugin string,
 	options CreateReplicationSlotOptions,
-) (CreateReplicationSlotResult, error) {
+) (*CreateReplicationSlotResult, error) {
 	var temporaryString string
 	if options.Temporary {
 		temporaryString = "TEMPORARY"
@@ -151,25 +151,25 @@ func CreateReplicationSlot(
 }
 
 // ParseCreateReplicationSlot parses the result of the CREATE_REPLICATION_SLOT command.
-func ParseCreateReplicationSlot(mrr *pgconn.MultiResultReader) (CreateReplicationSlotResult, error) {
+func ParseCreateReplicationSlot(mrr *pgconn.MultiResultReader) (*CreateReplicationSlotResult, error) {
 	var crsr CreateReplicationSlotResult
 	results, err := mrr.ReadAll()
 	if err != nil {
-		return crsr, err
+		return &crsr, err
 	}
 
 	if len(results) != 1 {
-		return crsr, errors.Errorf("expected 1 result set, got %d", len(results))
+		return &crsr, errors.Errorf("expected 1 result set, got %d", len(results))
 	}
 
 	result := results[0]
 	if len(result.Rows) != 1 {
-		return crsr, errors.Errorf("expected 1 result row, got %d", len(result.Rows))
+		return &crsr, errors.Errorf("expected 1 result row, got %d", len(result.Rows))
 	}
 
 	row := result.Rows[0]
 	if len(row) != 4 {
-		return crsr, errors.Errorf("expected 4 result columns, got %d", len(row))
+		return &crsr, errors.Errorf("expected 4 result columns, got %d", len(row))
 	}
 
 	crsr.SlotName = string(row[0])
@@ -177,7 +177,7 @@ func ParseCreateReplicationSlot(mrr *pgconn.MultiResultReader) (CreateReplicatio
 	crsr.SnapshotName = string(row[2])
 	crsr.OutputPlugin = string(row[3])
 
-	return crsr, nil
+	return &crsr, nil
 }
 
 type DropReplicationSlotOptions struct {

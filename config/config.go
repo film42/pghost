@@ -18,7 +18,7 @@ type Config struct {
 	PublicationName                    string `yaml:"publication_name"`
 	ReplicationSlotName                string `yaml:"replication_slot_name"`
 	ReplicationSlotIsTemporary         bool   `yaml:"replication_slot_is_temporary"`
-	ReplicationSlotSkipCreate          bool   `yaml:"replication_slot_skip_create"`
+	// ReplicationSlotSkipCreate          bool   `yaml:"replication_slot_skip_create"`
 	ReplicationContinueAfterCheckpoint bool   `yaml:"replication_continue_after_copy_checkpoint"`
 
 	CopyBatchSize              int  `yaml:"copy_batch_size"`

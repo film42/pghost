@@ -204,13 +204,7 @@ func getColumnNamesForTable(ctx context.Context, txn pgx.Tx, schemaName, tableNa
 	return columnNames, nil
 }
 
-func (cb *CopyWithPq) createTransactionSnapshotId(ctx context.Context, txn pgx.Tx) (string, error) {
-	var snapshotId string
-	err := txn.QueryRow(ctx, "SELECT pg_export_snapshot()").Scan(&snapshotId)
-	return snapshotId, err
-}
-
-func (cb *CopyWithPq) DoCopy(ctx context.Context) error {
+func (cb *CopyWithPq) DoCopy(ctx context.Context, transactionSnapshotId string) error {
 	srcConn, err := pgx.Connect(ctx, cb.Cfg.SourceConnection)
 	if err != nil {
 		return err
@@ -241,17 +235,11 @@ func (cb *CopyWithPq) DoCopy(ctx context.Context) error {
 	}
 
 	// See if we should capture a transaction snapshot.
-	var transactionSnapshotId string
 	if cb.Cfg.CopyUseTransactionSnapshot {
-		// If we need to run within in one transaction we need to snapshot the
-		// current transaction id so we can keep copy consistent.
-		transactionSnapshotId, err = cb.createTransactionSnapshotId(ctx, srcConnTxn)
-		if err != nil {
-			return err
-		}
 		defer srcConnTxn.Commit(ctx)
 	} else {
-		// Release the transaction since we won't need it going forward.
+		// Release the transaction since we won't need it going forward. And set snapshot to "".
+		transactionSnapshotId = ""
 		err = srcConnTxn.Commit(ctx)
 		if err != nil {
 			return nil
