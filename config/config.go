@@ -19,7 +19,8 @@ type Config struct {
 	ReplicationSlotName        string `yaml:"replication_slot_name"`
 	ReplicationSlotIsTemporary bool   `yaml:"replication_slot_is_temporary"`
 	// ReplicationSlotSkipCreate          bool   `yaml:"replication_slot_skip_create"`
-	ReplicationContinueAfterCheckpoint bool `yaml:"replication_continue_after_copy_checkpoint"`
+	ReplicationContinueAfterCheckpoint bool   `yaml:"replication_continue_after_copy_checkpoint"`
+	SubscriptionName                   string `yaml:"subscription_name"`
 
 	CopyBatchSize              int  `yaml:"copy_batch_size"`
 	CopyWorkerCount            int  `yaml:"copy_worker_count"`
@@ -30,6 +31,9 @@ type Config struct {
 func (c *Config) generateMissingValues() error {
 	if len(c.ReplicationSlotName) == 0 {
 		c.ReplicationSlotName = "pghost_created_replication_slot"
+	}
+	if len(c.SubscriptionName) == 0 {
+		c.SubscriptionName = "pghost_created_subscription"
 	}
 	return nil
 }

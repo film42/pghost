@@ -29,6 +29,12 @@ replication_slot_is_temporary: true
 # # Skip the creation of the replication slot, ex: using an existing replication slot.
 # replication_slot_skip_create: false
 
+# The name of the subscription slot if you want pghostt to auto-start standard
+# logical replication after pghost finishes. Leave blank to make one.
+# NOTE: In order to use this feature, you MUST assert that the table in both
+# databases have the same name and schema.
+subscription_name: ""
+
 # Parameters for the batch copying.
 # ID range to walk when using id range mode.
 copy_batch_size: 100000
