@@ -22,11 +22,11 @@ func (ks *keysetSeq) Next() *IdRange {
 	return next
 }
 
-func KeysetPaginateTable(ctx context.Context, conn *pgx.Conn, schemaName, tableName string, batchSize int) (IdRangeSeq, error) {
+func KeysetPaginateTable(ctx context.Context, txn pgx.Tx, schemaName, tableName string, batchSize int) (IdRangeSeq, error) {
 	sql := fmt.Sprintf("SELECT id FROM ( SELECT id, row_number() OVER(ORDER BY id) FROM %s.%s ) AS ks WHERE row_number %% %d = 1 ORDER BY id;",
 		schemaName, tableName, batchSize)
 
-	rows, err := conn.Query(ctx, sql)
+	rows, err := txn.Query(ctx, sql)
 	if err != nil {
 		return nil, err
 	}

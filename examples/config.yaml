@@ -11,7 +11,7 @@ source_schema_name: public
 destination_connection: dbname=postgres user=remote_admin password=remote_admin host=localhost port=6432
 
 # Table name to receive data. NOTE: Leave blank to keep the same as source.
-destination_table_name: yolos2
+destination_table_name: yolos
 destination_schema_name: public
 
 # The name of the publication on the src database that includes the
@@ -35,6 +35,10 @@ copy_batch_size: 100000
 
 # Number of workers to run in parllel. Don't kill your database.
 copy_worker_count: 10
+
+# Set to "true" to have pghost mimick traditional logical replication by
+# exporing a transaction snapshot used by all copy workers.
+copy_use_transaction_snapshot: true
 
 # Use keyset pagination for more precise data ranges.
 # Warning: This is slow for really large tables but still might be

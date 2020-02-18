@@ -47,18 +47,18 @@ func (s *indexWalkSeq) Next() *IdRange {
 	return ir
 }
 
-func WalkTableIds(ctx context.Context, conn *pgx.Conn, schemaName, tableName string, batchSize int) (IdRangeSeq, error) {
+func WalkTableIds(ctx context.Context, txn pgx.Tx, schemaName, tableName string, batchSize int) (IdRangeSeq, error) {
 	iws := &indexWalkSeq{batchSize: batchSize}
 
 	// Fetch the minId
-	err := conn.QueryRow(ctx, fmt.Sprintf("SELECT MIN(id) FROM %s.%s", schemaName, tableName)).Scan(&iws.minId)
+	err := txn.QueryRow(ctx, fmt.Sprintf("SELECT MIN(id) FROM %s.%s", schemaName, tableName)).Scan(&iws.minId)
 	if err != nil {
 		return nil, err
 	}
 	iws.currentId = iws.minId
 
 	// Fetch the maxId
-	err = conn.QueryRow(ctx, fmt.Sprintf("SELECT MAX(id) FROM %s.%s", schemaName, tableName)).Scan(&iws.maxId)
+	err = txn.QueryRow(ctx, fmt.Sprintf("SELECT MAX(id) FROM %s.%s", schemaName, tableName)).Scan(&iws.maxId)
 	if err != nil {
 		return nil, err
 	}
@@ -66,12 +66,35 @@ func WalkTableIds(ctx context.Context, conn *pgx.Conn, schemaName, tableName str
 	return iws, nil
 }
 
-func (cb *CopyWithPq) CopyOneBatchCustomImpl(ctx context.Context, srcTableColumns []string, idRange *IdRange) error {
+func (cb *CopyWithPq) CopyOneBatchCustomImpl(ctx context.Context, srcTableColumns []string, idRange *IdRange, transactionSnapshotId string) error {
 	srcConn, err := pgx.Connect(ctx, cb.Cfg.SourceConnection)
 	if err != nil {
 		return err
 	}
 	defer srcConn.Close(ctx)
+
+	// Load the session to use a repeatable read isolation level.
+	if len(transactionSnapshotId) > 0 {
+		_, err = srcConn.Exec(ctx, "SET SESSION CHARACTERISTICS AS TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+		if err != nil {
+			return err
+		}
+	}
+
+	srcConnTxn, err := srcConn.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer srcConnTxn.Commit(ctx)
+
+	// See if we should load the commit with an existing transaction snapshot id.
+	if len(transactionSnapshotId) > 0 {
+		_, err = srcConnTxn.Exec(ctx, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", transactionSnapshotId))
+		if err != nil {
+			panic(err)
+			return err
+		}
+	}
 
 	destConn, err := pgx.Connect(ctx, cb.Cfg.DestinationConnection)
 	if err != nil {
@@ -85,6 +108,8 @@ func (cb *CopyWithPq) CopyOneBatchCustomImpl(ctx context.Context, srcTableColumn
 	copyFromQuery := fmt.Sprintf("COPY %s.%s (%s) FROM STDIN",
 		cb.Cfg.DestinationSchemaName, cb.Cfg.DestinationTableName, columnNames)
 
+	// By this point any fancy transaction logic should be applied and we should be
+	// good to copy this data.
 	cc := &CopyCmd{
 		FromConn:  destConn.PgConn(),
 		FromQuery: copyFromQuery,
@@ -152,11 +177,11 @@ func (cb *CopyWithPq) CopyOneBatch(ctx context.Context, startingAtId int64) erro
 	return <-copyFromChan
 }
 
-func getColumnNamesForTable(ctx context.Context, conn *pgx.Conn, schemaName, tableName string) ([]string, error) {
+func getColumnNamesForTable(ctx context.Context, txn pgx.Tx, schemaName, tableName string) ([]string, error) {
 	sql := fmt.Sprintf("SELECT column_name FROM information_schema.columns WHERE table_schema = '%s' and table_name = '%s'",
 		schemaName, tableName)
 
-	rows, err := conn.Query(ctx, sql)
+	rows, err := txn.Query(ctx, sql)
 	if err != nil {
 		return nil, err
 	}
@@ -179,14 +204,24 @@ func getColumnNamesForTable(ctx context.Context, conn *pgx.Conn, schemaName, tab
 	return columnNames, nil
 }
 
+func (cb *CopyWithPq) createTransactionSnapshotId(ctx context.Context, txn pgx.Tx) (string, error) {
+	var snapshotId string
+	err := txn.QueryRow(ctx, "SELECT pg_export_snapshot()").Scan(&snapshotId)
+	return snapshotId, err
+}
+
 func (cb *CopyWithPq) DoCopy(ctx context.Context) error {
 	srcConn, err := pgx.Connect(ctx, cb.Cfg.SourceConnection)
 	if err != nil {
 		return err
 	}
 	defer srcConn.Close(ctx)
+	srcConnTxn, err := srcConn.Begin(ctx)
+	if err != nil {
+		return err
+	}
 
-	srcTableColumnNames, err := getColumnNamesForTable(ctx, srcConn,
+	srcTableColumnNames, err := getColumnNamesForTable(ctx, srcConnTxn,
 		cb.Cfg.SourceSchemaName, cb.Cfg.SourceTableName)
 	if err != nil {
 		return err
@@ -194,15 +229,33 @@ func (cb *CopyWithPq) DoCopy(ctx context.Context) error {
 
 	var idRangeSeq IdRangeSeq
 	if cb.Cfg.CopyUseKeysetPagination {
-		idRangeSeq, err = KeysetPaginateTable(ctx, srcConn,
+		idRangeSeq, err = KeysetPaginateTable(ctx, srcConnTxn,
 			cb.Cfg.SourceSchemaName, cb.Cfg.SourceTableName, cb.Cfg.CopyBatchSize)
 	} else {
-		idRangeSeq, err = WalkTableIds(ctx, srcConn,
+		idRangeSeq, err = WalkTableIds(ctx, srcConnTxn,
 			cb.Cfg.SourceSchemaName, cb.Cfg.SourceTableName, cb.Cfg.CopyBatchSize)
 	}
 	// Check error for both IdRangeSeq builders above.
 	if err != nil {
 		return err
+	}
+
+	// See if we should capture a transaction snapshot.
+	var transactionSnapshotId string
+	if cb.Cfg.CopyUseTransactionSnapshot {
+		// If we need to run within in one transaction we need to snapshot the
+		// current transaction id so we can keep copy consistent.
+		transactionSnapshotId, err = cb.createTransactionSnapshotId(ctx, srcConnTxn)
+		if err != nil {
+			return err
+		}
+		defer srcConnTxn.Commit(ctx)
+	} else {
+		// Release the transaction since we won't need it going forward.
+		err = srcConnTxn.Commit(ctx)
+		if err != nil {
+			return nil
+		}
 	}
 
 	errorsChan := make(chan error, 100)
@@ -225,7 +278,7 @@ func (cb *CopyWithPq) DoCopy(ctx context.Context) error {
 					return
 				case nextIdRange := <-pendingWorkChan:
 					// err := cb.CopyOneBatch(ctx, nextId)
-					err := cb.CopyOneBatchCustomImpl(ctx, srcTableColumnNames, nextIdRange)
+					err := cb.CopyOneBatchCustomImpl(ctx, srcTableColumnNames, nextIdRange, transactionSnapshotId)
 					if err != nil {
 						errorsChan <- err
 						continue
