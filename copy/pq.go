@@ -236,6 +236,8 @@ func (cb *CopyWithPq) DoCopy(ctx context.Context, transactionSnapshotId string) 
 
 	// See if we should capture a transaction snapshot.
 	if cb.Cfg.CopyUseTransactionSnapshot {
+		// This is super super important. Without this we'll lose the snapshot after the first
+		// copy transactions finish. By holding this reference, we can hack the planet.
 		defer srcConnTxn.Commit(ctx)
 	} else {
 		// Release the transaction since we won't need it going forward. And set snapshot to "".
