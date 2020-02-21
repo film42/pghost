@@ -23,15 +23,16 @@ publication_name: pub_on_yolos
 # Specify the name of the replication slot. Leave blank for random.
 replication_slot_name: ""
 # Continue replicating after the post-copy checkpoint LSN has been reached.
-replication_continue_after_copy_checkpoint: true
+replication_continue_after_copy_checkpoint: false
 # Should the replication slot only exist for the life of the process.
-replication_slot_is_temporary: true
+replication_slot_is_temporary: false
 
 # The name of the subscription slot if you want pghostt to auto-start standard
 # logical replication after pghost finishes. Leave blank to make one.
 # NOTE: In order to use this feature, you MUST assert that the table in both
 # databases have the same name and schema.
 subscription_name: ""
+subscription_create_after_checkpoint: true
 
 # Parameters for the batch copying.
 # ID range to walk when using id range mode.

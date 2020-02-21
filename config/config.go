@@ -19,7 +19,9 @@ type Config struct {
 	ReplicationSlotName                string `yaml:"replication_slot_name"`
 	ReplicationSlotIsTemporary         bool   `yaml:"replication_slot_is_temporary"`
 	ReplicationContinueAfterCheckpoint bool   `yaml:"replication_continue_after_copy_checkpoint"`
-	SubscriptionName                   string `yaml:"subscription_name"`
+
+	SubscriptionName                  string `yaml:"subscription_name"`
+	SubscriptionCreateAfterCheckpoint bool   `yaml:"subscription_create_after_checkpoint"`
 
 	CopyBatchSize                 int    `yaml:"copy_batch_size"`
 	CopyWorkerCount               int    `yaml:"copy_worker_count"`

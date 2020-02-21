@@ -94,23 +94,27 @@ func doReplication(cmd *cobra.Command, args []string) {
 		log.Fatalln("Could not create some pending work in the replication slot:", err)
 	}
 
-	// Get the most recent xlogpos as a checkpoint.
-	checkpointLSN, err := lr.CurrentXLogPos(ctx)
-	if err != nil {
-		log.Fatalln("Could not fetch current xlog pos:", err)
-	}
+	// We don't need to use hand-rolled replication when we use a transaction snapshot
+	// since it's basically the same thing as regular log repl but with parallel copy.
+	if !cfg.CopyUseTransactionSnapshot {
+		// Get the most recent xlogpos as a checkpoint.
+		checkpointLSN, err := lr.CurrentXLogPos(ctx)
+		if err != nil {
+			log.Fatalln("Could not fetch current xlog pos:", err)
+		}
 
-	// Replicate!
-	log.Println("Starting replication with upserts up to checkpoint LSN:", checkpointLSN)
-	err = lr.ReplicateUpToCheckpoint(ctx, cfg.ReplicationSlotName, checkpointLSN, cfg.PublicationName)
-	if err != nil {
-		log.Fatalln("Error replicating to the checkpoint LSN:", err)
-	}
+		// Replicate!
+		log.Println("Starting replication with upserts up to checkpoint LSN:", checkpointLSN)
+		err = lr.ReplicateUpToCheckpoint(ctx, cfg.ReplicationSlotName, checkpointLSN, cfg.PublicationName)
+		if err != nil {
+			log.Fatalln("Error replicating to the checkpoint LSN:", err)
+		}
 
-	log.Println("Replication completed, you may now switch to standard logical replication.")
+		log.Println("Replication completed, you may now switch to standard logical replication.")
+	}
 
 	// Check to see if we should create a subscription in the destination db.
-	if len(cfg.SubscriptionName) > 0 {
+	if cfg.SubscriptionCreateAfterCheckpoint {
 		err = replication.CreateSubscription(ctx, cfg)
 		if err != nil {
 			log.Fatalln("Error createing subscription:", err)
