@@ -50,3 +50,4 @@ copy_use_transaction_snapshot: true
 # Warning: This is slow for really large tables but still might be
 # worth it.
 copy_use_keyset_pagination: true
+copy_keyset_pagination_cache_file: /tmp/yolos_keyset_cache.json

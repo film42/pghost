@@ -3,9 +3,11 @@ package copy
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"strings"
 	"sync"
@@ -204,6 +206,38 @@ func getColumnNamesForTable(ctx context.Context, txn pgx.Tx, schemaName, tableNa
 	return columnNames, nil
 }
 
+func (cb *CopyWithPq) saveOrLoadKeysetPaginatedTableIdRange(ctx context.Context, txn pgx.Tx) (IdRangeSeq, error) {
+	if len(cb.Cfg.CopyKeysetPaginationCacheFile) == 0 {
+		return KeysetPaginateTable(ctx, txn, cb.Cfg.SourceSchemaName, cb.Cfg.SourceTableName, cb.Cfg.CopyBatchSize)
+	}
+
+	bytes, err := ioutil.ReadFile(cb.Cfg.CopyKeysetPaginationCacheFile)
+	if err == nil {
+		idRange := []*IdRange{}
+		err = json.Unmarshal(bytes, &idRange)
+		if err != nil {
+			return nil, err
+		}
+		return &keysetSeq{pos: 0, pages: idRange}, nil
+	}
+
+	idRangeSet, err := KeysetPaginateTable(ctx, txn, cb.Cfg.SourceSchemaName, cb.Cfg.SourceTableName, cb.Cfg.CopyBatchSize)
+	if err != nil {
+		return nil, err
+	}
+
+	bytes, err = json.Marshal(idRangeSet.(*keysetSeq).pages)
+	if err != nil {
+		return nil, err
+	}
+	err = ioutil.WriteFile(cb.Cfg.CopyKeysetPaginationCacheFile, bytes, 0644)
+	if err != nil {
+		return nil, err
+	}
+
+	return idRangeSet, nil
+}
+
 func (cb *CopyWithPq) DoCopy(ctx context.Context, transactionSnapshotId string) error {
 	srcConn, err := pgx.Connect(ctx, cb.Cfg.SourceConnection)
 	if err != nil {
@@ -223,8 +257,7 @@ func (cb *CopyWithPq) DoCopy(ctx context.Context, transactionSnapshotId string) 
 
 	var idRangeSeq IdRangeSeq
 	if cb.Cfg.CopyUseKeysetPagination {
-		idRangeSeq, err = KeysetPaginateTable(ctx, srcConnTxn,
-			cb.Cfg.SourceSchemaName, cb.Cfg.SourceTableName, cb.Cfg.CopyBatchSize)
+		idRangeSeq, err = cb.saveOrLoadKeysetPaginatedTableIdRange(ctx, srcConnTxn)
 	} else {
 		idRangeSeq, err = WalkTableIds(ctx, srcConnTxn,
 			cb.Cfg.SourceSchemaName, cb.Cfg.SourceTableName, cb.Cfg.CopyBatchSize)

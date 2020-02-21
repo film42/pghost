@@ -87,7 +87,6 @@ After (4) has completed, the source and destination tables will be synchronized.
 - Better logging.
 - Handle message when replication slot is dropped.
 - Update the seq on the destination table so auto-increment will work.
-- Allow keyset pagination to be serialized and load for performance.
 
 ### License
 

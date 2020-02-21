@@ -22,10 +22,11 @@ type Config struct {
 	ReplicationContinueAfterCheckpoint bool   `yaml:"replication_continue_after_copy_checkpoint"`
 	SubscriptionName                   string `yaml:"subscription_name"`
 
-	CopyBatchSize              int  `yaml:"copy_batch_size"`
-	CopyWorkerCount            int  `yaml:"copy_worker_count"`
-	CopyUseKeysetPagination    bool `yaml:"copy_use_keyset_pagination"`
-	CopyUseTransactionSnapshot bool `yaml:"copy_use_transaction_snapshot"`
+	CopyBatchSize                 int    `yaml:"copy_batch_size"`
+	CopyWorkerCount               int    `yaml:"copy_worker_count"`
+	CopyUseKeysetPagination       bool   `yaml:"copy_use_keyset_pagination"`
+	CopyKeysetPaginationCacheFile string `yaml:"copy_keyset_pagination_cache_file"`
+	CopyUseTransactionSnapshot    bool   `yaml:"copy_use_transaction_snapshot"`
 }
 
 func (c *Config) generateMissingValues() error {
