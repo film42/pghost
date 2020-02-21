@@ -71,8 +71,6 @@ func doReplication(cmd *cobra.Command, args []string) {
 		DestinationName:      cfg.DestinationTableName,
 	})
 
-	// Check if we should skip the creation (existing replication slot)
-	//if !cfg.ReplicationSlotSkipCreate {
 	log.Printf("Creating replication slot: %s, is_temporary: %v",
 		cfg.ReplicationSlotName, cfg.ReplicationSlotIsTemporary)
 	result, err := lr.CreateReplicationSlot(ctx, cfg.ReplicationSlotName, cfg.ReplicationSlotIsTemporary)
@@ -80,10 +78,9 @@ func doReplication(cmd *cobra.Command, args []string) {
 		log.Fatalln("Could not create the replication slot:", err)
 	}
 	transactionSnapshotId := result.SnapshotName
-	//}
 
-	log.Printf("Starting parallel COPY: Workers: %d, BatchSize: %d, KeysetPagination: %v",
-		cfg.CopyWorkerCount, cfg.CopyBatchSize, cfg.CopyUseKeysetPagination)
+	log.Printf("Starting parallel COPY: Workers: %d, BatchSize: %d, KeysetPagination: %v, KeysetCacheFile: '%s'",
+		cfg.CopyWorkerCount, cfg.CopyBatchSize, cfg.CopyUseKeysetPagination, cfg.CopyKeysetPaginationCacheFile)
 	cpq := &copy.CopyWithPq{Cfg: cfg}
 	err = cpq.DoCopy(ctx, transactionSnapshotId)
 	if err != nil {

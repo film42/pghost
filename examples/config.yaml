@@ -26,8 +26,6 @@ replication_slot_name: ""
 replication_continue_after_copy_checkpoint: false
 # Should the replication slot only exist for the life of the process.
 replication_slot_is_temporary: true
-# # Skip the creation of the replication slot, ex: using an existing replication slot.
-# replication_slot_skip_create: false
 
 # The name of the subscription slot if you want pghostt to auto-start standard
 # logical replication after pghost finishes. Leave blank to make one.
@@ -50,4 +48,8 @@ copy_use_transaction_snapshot: true
 # Warning: This is slow for really large tables but still might be
 # worth it.
 copy_use_keyset_pagination: true
+
+# When this value is len(x) > 0, and keyset pagination is enabled,
+# pghost will cache the results to disk and reload them on subsequent
+# runs to increase performance.
 copy_keyset_pagination_cache_file: /tmp/yolos_keyset_cache.json
