@@ -3,11 +3,9 @@ package copy
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"strings"
 	"sync"
@@ -211,14 +209,10 @@ func (cb *CopyWithPq) saveOrLoadKeysetPaginatedTableIdRange(ctx context.Context,
 		return KeysetPaginateTable(ctx, txn, cb.Cfg.SourceSchemaName, cb.Cfg.SourceTableName, cb.Cfg.CopyBatchSize)
 	}
 
-	bytes, err := ioutil.ReadFile(cb.Cfg.CopyKeysetPaginationCacheFile)
+	ks := new(keysetSeq)
+	err := ks.Load(cb.Cfg.CopyKeysetPaginationCacheFile)
 	if err == nil {
-		idRange := []*IdRange{}
-		err = json.Unmarshal(bytes, &idRange)
-		if err != nil {
-			return nil, err
-		}
-		return &keysetSeq{pos: 0, pages: idRange}, nil
+		return ks, nil
 	}
 
 	idRangeSet, err := KeysetPaginateTable(ctx, txn, cb.Cfg.SourceSchemaName, cb.Cfg.SourceTableName, cb.Cfg.CopyBatchSize)
@@ -226,15 +220,10 @@ func (cb *CopyWithPq) saveOrLoadKeysetPaginatedTableIdRange(ctx context.Context,
 		return nil, err
 	}
 
-	bytes, err = json.Marshal(idRangeSet.(*keysetSeq).pages)
+	err = idRangeSet.(*keysetSeq).Save(cb.Cfg.CopyKeysetPaginationCacheFile)
 	if err != nil {
 		return nil, err
 	}
-	err = ioutil.WriteFile(cb.Cfg.CopyKeysetPaginationCacheFile, bytes, 0644)
-	if err != nil {
-		return nil, err
-	}
-
 	return idRangeSet, nil
 }
 

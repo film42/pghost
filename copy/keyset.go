@@ -2,7 +2,9 @@ package copy
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"math"
 
 	"github.com/jackc/pgx/v4"
@@ -11,6 +13,29 @@ import (
 type keysetSeq struct {
 	pos   int
 	pages []*IdRange
+}
+
+func (ks *keysetSeq) Load(file string) error {
+	bytes, err := ioutil.ReadFile(file)
+	if err != nil {
+		return err
+	}
+	pages := []*IdRange{}
+	err = json.Unmarshal(bytes, &pages)
+	if err != nil {
+		return err
+	}
+	ks.pos = 0
+	ks.pages = pages
+	return nil
+}
+
+func (ks *keysetSeq) Save(file string) error {
+	bytes, err := json.Marshal(ks.pages)
+	if err != nil {
+		return err
+	}
+	return ioutil.WriteFile(file, bytes, 0644)
 }
 
 func (ks *keysetSeq) Next() *IdRange {
