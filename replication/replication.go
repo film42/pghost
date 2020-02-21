@@ -135,7 +135,7 @@ func (lr *LogicalReplicator) ReplicateUpToCheckpoint(ctx context.Context, name s
 				case *pgoutput.Relation:
 					lr.Processor.CacheRelation(v)
 				case *pgoutput.Begin:
-					// Reset statement list.
+					// Reset statement list. We do this after a successful send, but just in case.
 					statements = statements[:0]
 					sql, err := lr.Processor.BeginToSql(v)
 					if err != nil {
@@ -190,6 +190,8 @@ func (lr *LogicalReplicator) ReplicateUpToCheckpoint(ctx context.Context, name s
 			if err != nil {
 				return err
 			}
+			// Ensure we clear out any stored statements now that they've been applied.
+			statements = statements[:0]
 		}
 
 		if sendStandbyStatusUpdate {

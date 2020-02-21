@@ -1,7 +1,7 @@
 ---
 # The connection information for the src database.
-source_connection: dbname=postgres
-source_connection_for_replication: dbname=postgres replication=database
+source_connection: dbname=postgres host=localhost port=5432 dbname=postgres
+source_connection_for_replication: dbname=postgres host=localhost port=5432 replication=database
 
 # Table name to replicate.
 source_table_name: yolos
@@ -23,7 +23,7 @@ publication_name: pub_on_yolos
 # Specify the name of the replication slot. Leave blank for random.
 replication_slot_name: ""
 # Continue replicating after the post-copy checkpoint LSN has been reached.
-replication_continue_after_copy_checkpoint: false
+replication_continue_after_copy_checkpoint: true
 # Should the replication slot only exist for the life of the process.
 replication_slot_is_temporary: true
 

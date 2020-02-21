@@ -108,6 +108,17 @@ func doReplication(cmd *cobra.Command, args []string) {
 	}
 
 	log.Println("Replication completed, you may now switch to standard logical replication.")
+
+	// Check to see if we should create a subscription in the destination db.
+	if len(cfg.SubscriptionName) > 0 {
+		err = replication.CreateSubscription(ctx, cfg)
+		if err != nil {
+			log.Fatalln("Error createing subscription:", err)
+		}
+		log.Println("Subscription created on destination db named:", cfg.SubscriptionName)
+	}
+
+	log.Println("All done. Have a great day!")
 }
 
 func doSomeWork(ctx context.Context, conn *pgx.Conn) error {
