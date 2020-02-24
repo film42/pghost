@@ -13,6 +13,13 @@ import (
 )
 
 func main() {
+	copyCmd := &cobra.Command{
+		Use:   "copy [config]",
+		Short: "Parallel copy one table to another (does not use logical replication)",
+		Args:  cobra.MinimumNArgs(1),
+		Run:   doCopy,
+	}
+
 	replicateCmd := &cobra.Command{
 		Use:   "replicate [config]",
 		Short: "Replicate one table to another using logical replication with batched copy",
@@ -21,8 +28,28 @@ func main() {
 	}
 
 	rootCmd := &cobra.Command{Use: "pghost"}
+	rootCmd.AddCommand(copyCmd)
 	rootCmd.AddCommand(replicateCmd)
 	rootCmd.Execute()
+}
+
+func doCopy(cmd *cobra.Command, args []string) {
+	cfg, err := config.ParseConfig(args[0])
+	if err != nil {
+		log.Fatalln("Error parsing config:", err)
+	}
+
+	ctx := context.Background()
+	log.Printf("Starting parallel COPY: Workers: %d, BatchSize: %d, KeysetPagination: %v, KeysetCacheFile: '%s'",
+		cfg.CopyWorkerCount, cfg.CopyBatchSize, cfg.CopyUseKeysetPagination, cfg.CopyKeysetPaginationCacheFile)
+	cpq := &copy.CopyWithPq{Cfg: cfg}
+	// We pass an empty string here to not use a transaction snapshot for copying.
+	// NOTE: We still can do this if we want but I see no need at the moment.
+	err = cpq.DoCopy(ctx, "")
+	if err != nil {
+		log.Fatalln("COPY process failed:", err)
+	}
+	log.Println("COPY Finished!")
 }
 
 func doReplication(cmd *cobra.Command, args []string) {
