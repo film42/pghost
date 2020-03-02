@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"os"
+	"os/exec"
 	"strings"
 	"sync"
 
@@ -66,6 +68,47 @@ func WalkTableIds(ctx context.Context, txn pgx.Tx, schemaName, tableName string,
 	return iws, nil
 }
 
+func (cb *CopyWithPq) CopyOneBatchUsingPsqlCommand(ctx context.Context, srcTableColumns []string, idRange *IdRange, transactionSnapshotId string) error {
+	columnNames := strings.Join(srcTableColumns, ", ")
+	columnNames = columnNames
+	copyToQuery := fmt.Sprintf("COPY (SELECT * FROM %s.%s WHERE id >= %d AND id <= %d) TO STDOUT",
+		cb.Cfg.SourceSchemaName, cb.Cfg.SourceTableName, idRange.StartAt, idRange.EndAt)
+	copyFromQuery := fmt.Sprintf("COPY %s.%s FROM STDIN",
+		cb.Cfg.DestinationSchemaName, cb.Cfg.DestinationTableName)
+
+	// Create the COPY TO.
+	copyToCmd := exec.Command("psql", cb.Cfg.SourceConnection, "-c", copyToQuery)
+	copyToCmd.Stderr = os.Stderr
+
+	// Create the COPY FROM.
+	copyFromCmd := exec.Command("psql", cb.Cfg.DestinationConnection, "-c", copyFromQuery)
+	copyFromCmd.Stderr = os.Stderr
+
+	// Wire the COPY TO to point at the COPY FROM.
+	copyToCmdStdout, err := copyToCmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	// defer copyToCmdStdout.Close()
+	copyFromCmd.Stdin = copyToCmdStdout
+
+	// Run the processes to completion.
+	if err = copyFromCmd.Start(); err != nil {
+		return err
+	}
+	if err = copyToCmd.Start(); err != nil {
+		return err
+	}
+
+	if err = copyToCmd.Wait(); err != nil {
+		return err
+	}
+	if err = copyFromCmd.Wait(); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (cb *CopyWithPq) CopyOneBatchCustomImpl(ctx context.Context, srcTableColumns []string, idRange *IdRange, transactionSnapshotId string) error {
 	srcConn, err := pgx.Connect(ctx, cb.Cfg.SourceConnection)
 	if err != nil {
@@ -103,10 +146,12 @@ func (cb *CopyWithPq) CopyOneBatchCustomImpl(ctx context.Context, srcTableColumn
 	defer destConn.Close(ctx)
 
 	columnNames := strings.Join(srcTableColumns, ", ")
-	copyToQuery := fmt.Sprintf("COPY (SELECT (%s) FROM %s.%s WHERE id >= %d AND id <= %d) TO STDOUT",
-		columnNames, cb.Cfg.SourceSchemaName, cb.Cfg.SourceTableName, idRange.StartAt, idRange.EndAt)
-	copyFromQuery := fmt.Sprintf("COPY %s.%s (%s) FROM STDIN",
-		cb.Cfg.DestinationSchemaName, cb.Cfg.DestinationTableName, columnNames)
+	columnNames = columnNames
+
+	copyToQuery := fmt.Sprintf("COPY (SELECT * FROM %s.%s WHERE id >= %d AND id <= %d) TO STDOUT",
+		cb.Cfg.SourceSchemaName, cb.Cfg.SourceTableName, idRange.StartAt, idRange.EndAt)
+	copyFromQuery := fmt.Sprintf("COPY %s.%s FROM STDIN",
+		cb.Cfg.DestinationSchemaName, cb.Cfg.DestinationTableName)
 
 	// By this point any fancy transaction logic should be applied and we should be
 	// good to copy this data.
@@ -122,7 +167,7 @@ func (cb *CopyWithPq) CopyOneBatchCustomImpl(ctx context.Context, srcTableColumn
 }
 
 // TODO: Remove
-func (cb *CopyWithPq) CopyOneBatch(ctx context.Context, startingAtId int64) error {
+func (cb *CopyWithPq) CopyOneBatch(ctx context.Context, srcTableColumns []string, idRange *IdRange, transactionSnapshotId string) error {
 	srcConn, err := pgx.Connect(ctx, cb.Cfg.SourceConnection)
 	if err != nil {
 		return err
@@ -135,13 +180,14 @@ func (cb *CopyWithPq) CopyOneBatch(ctx context.Context, startingAtId int64) erro
 	}
 	defer destConn.Close(ctx)
 
-	copyToQuery := fmt.Sprintf("COPY (SELECT * FROM %s.%s WHERE id >= %d AND id < (%d + %d)) TO STDOUT",
-		cb.Cfg.SourceSchemaName, cb.Cfg.SourceTableName, startingAtId, startingAtId, cb.Cfg.CopyBatchSize)
-	copyFromQuery := fmt.Sprintf("COPY %s.%s FROM STDIN",
-		cb.Cfg.DestinationSchemaName, cb.Cfg.DestinationTableName)
+	columnNames := strings.Join(srcTableColumns, ", ")
+	copyToQuery := fmt.Sprintf("COPY (SELECT (%s) FROM %s.%s WHERE id >= %d AND id <= %d) TO STDOUT (FORMAT CSV)",
+		columnNames, cb.Cfg.SourceSchemaName, cb.Cfg.SourceTableName, idRange.StartAt, idRange.EndAt)
+	copyFromQuery := fmt.Sprintf("COPY %s.%s (%s) FROM STDIN (FORMAT CSV)",
+		cb.Cfg.DestinationSchemaName, cb.Cfg.DestinationTableName, columnNames)
 
-	log.Println(copyToQuery)
-	log.Println(copyFromQuery)
+	// log.Println(copyToQuery)
+	// log.Println(copyFromQuery)
 
 	rx, wx := io.Pipe()
 	defer wx.Close()
@@ -289,14 +335,17 @@ func (cb *CopyWithPq) DoCopy(ctx context.Context, transactionSnapshotId string) 
 				case <-ctx.Done():
 					return
 				case nextIdRange := <-pendingWorkChan:
-					// err := cb.CopyOneBatch(ctx, nextId)
+					log.Printf("Starting batch for range: %d through %d", nextIdRange.StartAt, nextIdRange.EndAt)
+
+					// err := cb.CopyOneBatchUsingPsqlCommand(ctx, srcTableColumnNames, nextIdRange, transactionSnapshotId)
+					// err := cb.CopyOneBatch(ctx, srcTableColumnNames, nextIdRange, transactionSnapshotId)
 					err := cb.CopyOneBatchCustomImpl(ctx, srcTableColumnNames, nextIdRange, transactionSnapshotId)
 					if err != nil {
 						errorsChan <- err
 						continue
 					}
 
-					log.Printf("Copied batch for range: %d through %d", nextIdRange.StartAt, nextIdRange.EndAt)
+					log.Printf("Finished batch for range: %d through %d", nextIdRange.StartAt, nextIdRange.EndAt)
 				}
 			}
 		}()
