@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/film42/pghost/config"
 	"github.com/jackc/pgx/v4"
@@ -181,10 +182,11 @@ func (cb *CopyWithPq) CopyOneBatch(ctx context.Context, srcTableColumns []string
 	defer destConn.Close(ctx)
 
 	columnNames := strings.Join(srcTableColumns, ", ")
-	copyToQuery := fmt.Sprintf("COPY (SELECT (%s) FROM %s.%s WHERE id >= %d AND id <= %d) TO STDOUT (FORMAT CSV)",
-		columnNames, cb.Cfg.SourceSchemaName, cb.Cfg.SourceTableName, idRange.StartAt, idRange.EndAt)
-	copyFromQuery := fmt.Sprintf("COPY %s.%s (%s) FROM STDIN (FORMAT CSV)",
-		cb.Cfg.DestinationSchemaName, cb.Cfg.DestinationTableName, columnNames)
+	columnNames = columnNames
+	copyToQuery := fmt.Sprintf("COPY (SELECT * FROM %s.%s WHERE id >= %d AND id <= %d) TO STDOUT",
+		cb.Cfg.SourceSchemaName, cb.Cfg.SourceTableName, idRange.StartAt, idRange.EndAt)
+	copyFromQuery := fmt.Sprintf("COPY %s.%s FROM STDIN",
+		cb.Cfg.DestinationSchemaName, cb.Cfg.DestinationTableName)
 
 	// log.Println(copyToQuery)
 	// log.Println(copyFromQuery)
@@ -248,6 +250,32 @@ func getColumnNamesForTable(ctx context.Context, txn pgx.Tx, schemaName, tableNa
 	}
 
 	return columnNames, nil
+}
+
+func isHotStandbyFeedbackError(err error) bool {
+	return strings.Contains(err.Error(), "canceling statement due to conflict with recovery")
+}
+
+func withHotStandbyRetry(callback func() error) error {
+	var err error
+	for i := 0; i < 3; i++ {
+		err = callback()
+		// When everything "just works" we'll break and keep going.
+		if err == nil {
+			return nil
+		}
+		// When we detect "conflict with recovery" we'll sleep and retry up to 3 times.
+		if isHotStandbyFeedbackError(err) {
+			log.Println("Detected hot standby feedback, sleeping 10 second before retrying...")
+			time.Sleep(10 * time.Second)
+			continue
+		}
+		// If it's a different error we'll stop now.
+		return err
+	}
+
+	// This should be the hot standby error after 3 failures.
+	return err
 }
 
 func (cb *CopyWithPq) saveOrLoadKeysetPaginatedTableIdRange(ctx context.Context, txn pgx.Tx) (IdRangeSeq, error) {
@@ -337,9 +365,11 @@ func (cb *CopyWithPq) DoCopy(ctx context.Context, transactionSnapshotId string) 
 				case nextIdRange := <-pendingWorkChan:
 					log.Printf("Starting batch for range: %d through %d", nextIdRange.StartAt, nextIdRange.EndAt)
 
-					// err := cb.CopyOneBatchUsingPsqlCommand(ctx, srcTableColumnNames, nextIdRange, transactionSnapshotId)
-					// err := cb.CopyOneBatch(ctx, srcTableColumnNames, nextIdRange, transactionSnapshotId)
-					err := cb.CopyOneBatchCustomImpl(ctx, srcTableColumnNames, nextIdRange, transactionSnapshotId)
+					err := withHotStandbyRetry(func() error {
+						// return cb.CopyOneBatchUsingPsqlCommand(ctx, srcTableColumnNames, nextIdRange, transactionSnapshotId)
+						// return cb.CopyOneBatch(ctx, srcTableColumnNames, nextIdRange, transactionSnapshotId)
+						return cb.CopyOneBatchCustomImpl(ctx, srcTableColumnNames, nextIdRange, transactionSnapshotId)
+					})
 					if err != nil {
 						errorsChan <- err
 						continue

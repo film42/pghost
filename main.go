@@ -107,11 +107,12 @@ func doReplication(cmd *cobra.Command, args []string) {
 	transactionSnapshotId := result.SnapshotName
 
 	if cfg.CopyUseSourceConnectionAsHotStandby {
+		log.Println("Waiting for source connection (hot standby) to reach LSN:", result.ConsistentPoint)
 		err = replication.WaitForHotStandbyToArriveAtLSN(ctx, cfg, result.ConsistentPoint)
 		if err != nil {
 			log.Fatalln("Could not wait for hot standby to catch up:", err)
 		}
-		log.Println("Hot Standby is reached consistency point:", result.ConsistentPoint)
+		log.Println("Hot standby is reached consistency point:", result.ConsistentPoint)
 	}
 
 	log.Printf("Starting parallel COPY: Workers: %d, BatchSize: %d, KeysetPagination: %v, KeysetCacheFile: '%s'",
