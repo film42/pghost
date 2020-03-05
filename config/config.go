@@ -23,11 +23,12 @@ type Config struct {
 	SubscriptionName                  string `yaml:"subscription_name"`
 	SubscriptionCreateAfterCheckpoint bool   `yaml:"subscription_create_after_checkpoint"`
 
-	CopyBatchSize                 int    `yaml:"copy_batch_size"`
-	CopyWorkerCount               int    `yaml:"copy_worker_count"`
-	CopyUseKeysetPagination       bool   `yaml:"copy_use_keyset_pagination"`
-	CopyKeysetPaginationCacheFile string `yaml:"copy_keyset_pagination_cache_file"`
-	CopyUseTransactionSnapshot    bool   `yaml:"copy_use_transaction_snapshot"`
+	CopyBatchSize                       int    `yaml:"copy_batch_size"`
+	CopyWorkerCount                     int    `yaml:"copy_worker_count"`
+	CopyUseKeysetPagination             bool   `yaml:"copy_use_keyset_pagination"`
+	CopyKeysetPaginationCacheFile       string `yaml:"copy_keyset_pagination_cache_file"`
+	CopyUseTransactionSnapshot          bool   `yaml:"copy_use_transaction_snapshot"`
+	CopyUseSourceConnectionAsHotStandby bool   `yaml:"copy_use_source_connection_as_hot_standby"`
 }
 
 func (c *Config) generateMissingValues() error {

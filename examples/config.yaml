@@ -8,7 +8,8 @@ source_table_name: yolos
 source_schema_name: public
 
 # The connection information for the dest database.
-destination_connection: dbname=postgres user=remote_admin password=remote_admin host=localhost port=6432
+# destination_connection: dbname=postgres user=remote_admin password=remote_admin host=localhost port=6432
+destination_connection: dbname=postgres host=localhost port=5432 dbname=postgres
 
 # Table name to receive data. NOTE: Leave blank to keep the same as source.
 destination_table_name: yolos
@@ -40,6 +41,11 @@ copy_batch_size: 100000
 
 # Number of workers to run in parllel. Don't kill your database.
 copy_worker_count: 10
+
+# Treat the source connection (not the one for replication) as a hot stand
+# node. This will wait for the standby to catch up to the primary before
+# beginning the COPY step.
+copy_use_source_connection_as_hot_standby: true
 
 # Set to "true" to have pghost mimick traditional logical replication by
 # exporing a transaction snapshot used by all copy workers.

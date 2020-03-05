@@ -85,6 +85,7 @@ After (4) has completed, the source and destination tables will be synchronized.
 - Support migration of multiple tables.
 - Better logging.
 - Update the seq on the destination table so auto-increment will work.
+- Retry should a copy fail without a conflict reason (like "canceling statement due to conflict with recovery")
 
 ### License
 
