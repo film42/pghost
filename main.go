@@ -104,7 +104,6 @@ func doReplication(cmd *cobra.Command, args []string) {
 	if err != nil {
 		log.Fatalln("Could not create the replication slot:", err)
 	}
-	transactionSnapshotId := result.SnapshotName
 
 	if cfg.CopyUseSourceConnectionAsHotStandby {
 		log.Println("Waiting for source connection (hot standby) to reach LSN:", result.ConsistentPoint)
@@ -118,7 +117,7 @@ func doReplication(cmd *cobra.Command, args []string) {
 	log.Printf("Starting parallel COPY: Workers: %d, BatchSize: %d, KeysetPagination: %v, KeysetCacheFile: '%s'",
 		cfg.CopyWorkerCount, cfg.CopyBatchSize, cfg.CopyUseKeysetPagination, cfg.CopyKeysetPaginationCacheFile)
 	cpq := &copy.CopyWithPq{Cfg: cfg}
-	err = cpq.DoCopy(ctx, transactionSnapshotId)
+	err = cpq.DoCopy(ctx, result.SnapshotName)
 	if err != nil {
 		log.Fatalln("COPY process failed:", err)
 	}
