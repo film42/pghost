@@ -71,11 +71,10 @@ func WalkTableIds(ctx context.Context, txn pgx.Tx, schemaName, tableName string,
 
 func (cb *CopyWithPq) CopyOneBatchUsingPsqlCommand(ctx context.Context, srcTableColumns []string, idRange *IdRange, transactionSnapshotId string) error {
 	columnNames := strings.Join(srcTableColumns, ", ")
-	columnNames = columnNames
 	copyToQuery := fmt.Sprintf("COPY (SELECT * FROM %s.%s WHERE id >= %d AND id <= %d) TO STDOUT",
 		cb.Cfg.SourceSchemaName, cb.Cfg.SourceTableName, idRange.StartAt, idRange.EndAt)
-	copyFromQuery := fmt.Sprintf("COPY %s.%s FROM STDIN",
-		cb.Cfg.DestinationSchemaName, cb.Cfg.DestinationTableName)
+	copyFromQuery := fmt.Sprintf("COPY %s.%s (%s) FROM STDIN",
+		cb.Cfg.DestinationSchemaName, cb.Cfg.DestinationTableName, columnNames)
 
 	// Create the COPY TO.
 	copyToCmd := exec.Command("psql", cb.Cfg.SourceConnection, "-c", copyToQuery)
@@ -147,12 +146,10 @@ func (cb *CopyWithPq) CopyOneBatchCustomImpl(ctx context.Context, srcTableColumn
 	defer destConn.Close(ctx)
 
 	columnNames := strings.Join(srcTableColumns, ", ")
-	columnNames = columnNames
-
 	copyToQuery := fmt.Sprintf("COPY (SELECT * FROM %s.%s WHERE id >= %d AND id <= %d) TO STDOUT",
 		cb.Cfg.SourceSchemaName, cb.Cfg.SourceTableName, idRange.StartAt, idRange.EndAt)
-	copyFromQuery := fmt.Sprintf("COPY %s.%s FROM STDIN",
-		cb.Cfg.DestinationSchemaName, cb.Cfg.DestinationTableName)
+	copyFromQuery := fmt.Sprintf("COPY %s.%s (%s) FROM STDIN",
+		cb.Cfg.DestinationSchemaName, cb.Cfg.DestinationTableName, columnNames)
 
 	// By this point any fancy transaction logic should be applied and we should be
 	// good to copy this data.
@@ -182,11 +179,10 @@ func (cb *CopyWithPq) CopyOneBatch(ctx context.Context, srcTableColumns []string
 	defer destConn.Close(ctx)
 
 	columnNames := strings.Join(srcTableColumns, ", ")
-	columnNames = columnNames
 	copyToQuery := fmt.Sprintf("COPY (SELECT * FROM %s.%s WHERE id >= %d AND id <= %d) TO STDOUT",
 		cb.Cfg.SourceSchemaName, cb.Cfg.SourceTableName, idRange.StartAt, idRange.EndAt)
-	copyFromQuery := fmt.Sprintf("COPY %s.%s FROM STDIN",
-		cb.Cfg.DestinationSchemaName, cb.Cfg.DestinationTableName)
+	copyFromQuery := fmt.Sprintf("COPY %s.%s (%s) FROM STDIN",
+		cb.Cfg.DestinationSchemaName, cb.Cfg.DestinationTableName, columnNames)
 
 	// log.Println(copyToQuery)
 	// log.Println(copyFromQuery)
