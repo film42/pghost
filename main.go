@@ -120,6 +120,7 @@ func doReplication(cmd *cobra.Command, args []string) {
 	// DEBUG: Generate some work so we can be sure we always replicate after COPY.
 	shouldDoDemoWork, _ := cmd.Flags().GetBool("internal-do-demo-work")
 	if shouldDoDemoWork {
+		log.Println("Internal: Running demo work as part of a debug session.")
 		err = interalDoDemoWork(ctx, cfg)
 		if err != nil {
 			log.Fatalln("Internal: Could not run demo work due to error:", err)
