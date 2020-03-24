@@ -26,6 +26,7 @@ func main() {
 		Args:  cobra.MinimumNArgs(1),
 		Run:   doReplication,
 	}
+	replicateCmd.Flags().Bool("internal-do-demo-work", false, "Internal: used by bench testing a test table")
 
 	rootCmd := &cobra.Command{Use: "pghost"}
 	rootCmd.AddCommand(copyCmd)
@@ -65,13 +66,6 @@ func doReplication(cmd *cobra.Command, args []string) {
 		log.Fatalln("failed to connect to PostgreSQL server:", err)
 	}
 	defer replicationConn.Close(ctx)
-
-	// Demo work conn.
-	demoWorkConn, err := pgx.Connect(ctx, cfg.SourceConnection)
-	if err != nil {
-		log.Fatalln("failed to connect to PostgreSQL server:", err)
-	}
-	defer demoWorkConn.Close(ctx)
 
 	// Setup queryable connection.
 	queryConn, err := pgx.Connect(ctx, cfg.DestinationConnection)
@@ -124,9 +118,12 @@ func doReplication(cmd *cobra.Command, args []string) {
 	log.Println("COPY Finished!")
 
 	// DEBUG: Generate some work so we can be sure we always replicate after COPY.
-	err = doSomeWork(ctx, demoWorkConn)
-	if err != nil {
-		log.Fatalln("Could not create some pending work in the replication slot:", err)
+	shouldDoDemoWork, _ := cmd.Flags().GetBool("internal-do-demo-work")
+	if shouldDoDemoWork {
+		err = interalDoDemoWork(ctx, cfg)
+		if err != nil {
+			log.Fatalln("Internal: Could not run demo work due to error:", err)
+		}
 	}
 
 	// We don't need to use hand-rolled replication when we use a transaction snapshot
@@ -160,9 +157,16 @@ func doReplication(cmd *cobra.Command, args []string) {
 	log.Println("All done. Have a great day!")
 }
 
-func doSomeWork(ctx context.Context, conn *pgx.Conn) error {
+func interalDoDemoWork(ctx context.Context, cfg *config.Config) error {
+	// Demo work conn.
+	demoWorkConn, err := pgx.Connect(ctx, cfg.SourceConnection)
+	if err != nil {
+		return err
+	}
+	defer demoWorkConn.Close(ctx)
+
 	for i := 0; i < 5; i++ {
-		rows, err := conn.Query(ctx, "insert into yolos select max(id)+1 from yolos;")
+		rows, err := demoWorkConn.Query(ctx, "insert into yolos select max(id)+1 from yolos;")
 		if err != nil {
 			return err
 		}
