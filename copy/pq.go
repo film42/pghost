@@ -1,14 +1,10 @@
 package copy
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log"
-	"os"
-	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -69,46 +65,6 @@ func WalkTableIds(ctx context.Context, txn pgx.Tx, schemaName, tableName string,
 	return iws, nil
 }
 
-func (cb *CopyWithPq) CopyOneBatchUsingPsqlCommand(ctx context.Context, srcTableColumns []string, idRange *IdRange, transactionSnapshotId string) error {
-	columnNames := strings.Join(srcTableColumns, ", ")
-	copyToQuery := fmt.Sprintf("COPY (SELECT * FROM %s.%s WHERE id >= %d AND id <= %d) TO STDOUT",
-		cb.Cfg.SourceSchemaName, cb.Cfg.SourceTableName, idRange.StartAt, idRange.EndAt)
-	copyFromQuery := fmt.Sprintf("COPY %s.%s (%s) FROM STDIN",
-		cb.Cfg.DestinationSchemaName, cb.Cfg.DestinationTableName, columnNames)
-
-	// Create the COPY TO.
-	copyToCmd := exec.Command("psql", cb.Cfg.SourceConnection, "-c", copyToQuery)
-	copyToCmd.Stderr = os.Stderr
-
-	// Create the COPY FROM.
-	copyFromCmd := exec.Command("psql", cb.Cfg.DestinationConnection, "-c", copyFromQuery)
-	copyFromCmd.Stderr = os.Stderr
-
-	// Wire the COPY TO to point at the COPY FROM.
-	copyToCmdStdout, err := copyToCmd.StdoutPipe()
-	if err != nil {
-		return err
-	}
-	// defer copyToCmdStdout.Close()
-	copyFromCmd.Stdin = copyToCmdStdout
-
-	// Run the processes to completion.
-	if err = copyFromCmd.Start(); err != nil {
-		return err
-	}
-	if err = copyToCmd.Start(); err != nil {
-		return err
-	}
-
-	if err = copyToCmd.Wait(); err != nil {
-		return err
-	}
-	if err = copyFromCmd.Wait(); err != nil {
-		return err
-	}
-	return nil
-}
-
 func (cb *CopyWithPq) CopyOneBatchCustomImpl(ctx context.Context, srcTableColumns []string, idRange *IdRange, transactionSnapshotId string) error {
 	srcConn, err := pgx.Connect(ctx, cb.Cfg.SourceConnection)
 	if err != nil {
@@ -162,63 +118,6 @@ func (cb *CopyWithPq) CopyOneBatchCustomImpl(ctx context.Context, srcTableColumn
 	}
 
 	return cc.Do(ctx)
-}
-
-// TODO: Remove
-func (cb *CopyWithPq) CopyOneBatch(ctx context.Context, srcTableColumns []string, idRange *IdRange, transactionSnapshotId string) error {
-	srcConn, err := pgx.Connect(ctx, cb.Cfg.SourceConnection)
-	if err != nil {
-		return err
-	}
-	defer srcConn.Close(ctx)
-
-	destConn, err := pgx.Connect(ctx, cb.Cfg.DestinationConnection)
-	if err != nil {
-		return err
-	}
-	defer destConn.Close(ctx)
-
-	columnNames := strings.Join(srcTableColumns, ", ")
-	copyToQuery := fmt.Sprintf("COPY (SELECT * FROM %s.%s WHERE id >= %d AND id <= %d) TO STDOUT",
-		cb.Cfg.SourceSchemaName, cb.Cfg.SourceTableName, idRange.StartAt, idRange.EndAt)
-	copyFromQuery := fmt.Sprintf("COPY %s.%s (%s) FROM STDIN",
-		cb.Cfg.DestinationSchemaName, cb.Cfg.DestinationTableName, columnNames)
-
-	// log.Println(copyToQuery)
-	// log.Println(copyFromQuery)
-
-	rx, wx := io.Pipe()
-	defer wx.Close()
-	defer rx.Close()
-	writer := bufio.NewWriterSize(wx, 65536)
-	ctxWithCancel, cancelFunc := context.WithCancel(ctx)
-
-	// Kick off the read side. This will block even on read, so we'll be careful here.
-	copyFromChan := make(chan error, 1)
-	go func() {
-		_, err := destConn.PgConn().CopyFrom(ctxWithCancel, &R{rx}, copyFromQuery)
-		if err != nil {
-			// Signal the write side needs to end.
-			cancelFunc()
-		}
-		rx.Close()
-		copyFromChan <- err
-	}()
-
-	_, err = srcConn.PgConn().CopyTo(ctxWithCancel, &W{writer}, copyToQuery)
-	if err != nil {
-		// Signal to reader that we are done.
-		cancelFunc()
-		return err
-	}
-	err = writer.Flush()
-	if err != nil {
-		cancelFunc()
-		return err
-	}
-	wx.Close()
-
-	return <-copyFromChan
 }
 
 func getColumnNamesForTable(ctx context.Context, txn pgx.Tx, schemaName, tableName string) ([]string, error) {
@@ -362,8 +261,6 @@ func (cb *CopyWithPq) DoCopy(ctx context.Context, transactionSnapshotId string) 
 					log.Printf("Starting batch for range: %d through %d", nextIdRange.StartAt, nextIdRange.EndAt)
 
 					err := withHotStandbyRetry(func() error {
-						// return cb.CopyOneBatchUsingPsqlCommand(ctx, srcTableColumnNames, nextIdRange, transactionSnapshotId)
-						// return cb.CopyOneBatch(ctx, srcTableColumnNames, nextIdRange, transactionSnapshotId)
 						return cb.CopyOneBatchCustomImpl(ctx, srcTableColumnNames, nextIdRange, transactionSnapshotId)
 					})
 					if err != nil {
